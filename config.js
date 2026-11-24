@@ -20,4 +20,4 @@ window.EVENT_ID = "2026";
 
 // 3) 진행자 키 — 진행자 화면 주소: host.html?key=아래값
 //    (참가자에게는 index.html 주소만 공유하세요)
-window.HOST_KEY = "hynix2026";
+window.HOST_KEY = "ADVPKG";
