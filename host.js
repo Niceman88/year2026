@@ -4,7 +4,7 @@
   const app = document.getElementById('app');
   const qs = new URLSearchParams(location.search);
   const KEYK = 'yearend-hostkey';
-  if (window.HOST_KEY && (qs.get('key') || sessionStorage.getItem(KEYK)) !== window.HOST_KEY) {
+  if (window.HOST_KEY && ![qs.get('key'), sessionStorage.getItem(KEYK)].includes(window.HOST_KEY)) {
     app.innerHTML = `<div class="p-wrap"><div class="card"><div class="q-title">진행자 키를 입력하세요</div><input id="k" type="password"><button class="primary" id="go" style="margin-top:10px;width:100%">확인</button><div class="err" id="e"></div></div></div>`;
     document.getElementById('go').onclick = () => {
       if (document.getElementById('k').value === window.HOST_KEY) { sessionStorage.setItem(KEYK, window.HOST_KEY); location.reload(); }
@@ -12,7 +12,7 @@
     };
     return;
   }
-  if (qs.get('key')) sessionStorage.setItem(KEYK, qs.get('key'));
+  sessionStorage.setItem(KEYK, window.HOST_KEY || '');
   if (DEMO) document.body.insertAdjacentHTML('beforeend', '<div class="demo-banner">데모 모드 — Firebase 없이 이 브라우저 탭끼리만 연결됩니다 (리허설용)</div>');
 
   app.innerHTML = `<div class="h-wrap"><div class="h-top"><h1 id="hTitle">진행자</h1>
