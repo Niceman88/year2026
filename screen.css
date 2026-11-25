@@ -156,3 +156,5 @@ body.screen .demo-banner{opacity:.6}
 .lane.first .road{box-shadow:0 0 3vh var(--c)}
 .go-overlay{font-size:34vh;font-weight:900;text-align:center;line-height:1;color:var(--gold);text-shadow:0 0 6vh #ffcc4d;animation:pop 1s ease infinite}
 .race-time{font-size:7vh;font-weight:900;text-align:center;margin-bottom:2vh}
+
+.snd-btn{position:fixed;left:2vw;bottom:2.5vh;z-index:60;font-size:2vh;font-weight:800;padding:1.2vh 1.6vw;border-radius:99px;background:#ffcc4d;color:#221a00;box-shadow:0 0 3vh #ffcc4d88;animation:blink 1.4s infinite}

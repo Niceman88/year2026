@@ -11,6 +11,17 @@
     <div class="sc-main" id="main"></div><div class="sc-teams" id="teams"></div></div>`;
   if (DEMO) document.body.insertAdjacentHTML('beforeend', '<div class="demo-banner">데모 모드</div>');
   const main = document.getElementById('main');
+  // ---------- 소리 ----------
+  const snd = window.Sound;
+  document.body.insertAdjacentHTML('beforeend', '<button id="sndBtn" class="snd-btn">🔊 클릭해서 소리 켜기</button>');
+  const sndBtn = document.getElementById('sndBtn');
+  const doUnlock = () => { if (!snd || snd.unlocked) return; snd.unlock(); sndBtn.remove(); };
+  sndBtn.onclick = doUnlock; document.addEventListener('keydown', doUnlock); document.addEventListener('pointerdown', doUnlock);
+  const cued = new Set();
+  const sfx = (name, arg) => { if (snd && snd.unlocked) snd.play(name, arg); };
+  const cue = (id, name, arg) => { if (cued.has(id)) return; cued.add(id); sfx(name, arg); };
+  let lastPop = 0; const pop = name => { const n = Date.now(); if (n - lastPop > 130) { lastPop = n; sfx(name || 'pop'); } };
+  let duckNow = false;
   const joinUrl = Core.pageUrl('index.html');
 
   let D = null, rTimer = null;
@@ -32,6 +43,7 @@
       curType = type; curKey = key; curUpdate = update || null;
       main.innerHTML = build();
       main.classList.remove('enter'); void main.offsetWidth; main.classList.add('enter');
+      if (!/^(race|q-o|l-s|l-v|q-v|r\d|final)/.test(type)) cue('w:' + type, 'whoosh');
       if (update) update(true);
       return;
     }
@@ -48,6 +60,8 @@
     const status = meta.status || 'waiting';
     const idx = meta.current != null ? meta.current : -1;
     const act = vals(content.activities)[idx];
+    if (snd) snd.set(Object.assign({ bgm: true, vol: .4, sfx: true }, meta.sound || {}));
+    duckNow = false;
     let teamMode = 'score';
     if (status === 'ended') vFinal(content);
     else if (status === 'waiting' || !act) { vWelcome(content, status); teamMode = 'members'; }
@@ -57,6 +71,7 @@
       if (act.type === 'race') teamMode = 'hide';
     }
     renderTeams(teamMode);
+    if (snd) snd.duck(duckNow);
   }
 
   // 하단 팀 띠: 진행 중에는 팀 평균 점수, 대기 중에는 팀별 인원
@@ -81,6 +96,11 @@
         el.querySelector('.fg').style.strokeDashoffset = String(565.5 * (1 - left / total));
         el.querySelector('.num').textContent = left > 0 ? sec : '⏰';
         el.classList.toggle('hurry', left > 0 && left <= 5000);
+        if (el.dataset.sec !== String(sec)) {
+          if (el.dataset.sec && left > 0 && left <= 5000) sfx('tick');
+          if (el.dataset.sec && el.dataset.sec !== '0' && left <= 0) sfx('buzzer');
+          el.dataset.sec = sec;
+        }
       } else el.textContent = sec;
     });
     render();
@@ -112,7 +132,7 @@
       <div class="hero-row"><div class="glass qr-card"><img alt="QR" src="https://api.qrserver.com/v1/create-qr-code/?size=500x500&margin=0&data=${encodeURIComponent(joinUrl)}" onerror="this.style.display='none'">
         <div><div class="sub" style="text-align:left">📱 접속 주소</div><div class="url">${esc(joinUrl.replace(/^https?:\/\//, ''))}</div></div></div>
         <div class="big-count"><div class="n" id="wN">0</div><div class="t">명 참가 중</div></div></div>`,
-      () => { const el = document.getElementById('wN'); if (el && el.textContent !== String(n)) { el.textContent = n; el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); } });
+      () => { const el = document.getElementById('wN'); if (el && el.textContent !== String(n)) { if (el.textContent !== '0') pop('join'); el.textContent = n; el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); } });
   }
 
   // ---------- 투표 ----------
@@ -122,7 +142,8 @@
     const c = countVotes(opts.length, ans); const n = c.reduce((a, b) => a + b, 0);
     view('poll' + idx, JSON.stringify([c, ph]), () => `${label('🗳️ 실시간 투표')}<div class="headline">${esc(act.title)}</div>
       ${barsHTML(opts.map((o, i) => ({ label: o, k: OPT_KEYS[i], color: COLORS[i % COLORS.length] })))}<div class="sub" id="pS" style="margin-top:3vh"></div>`,
-      () => { updateBars(main, c, { pct: true, crown: true }); document.getElementById('pS').innerHTML = `${ph === 'open' ? '<span style="color:#3ddc97">● 투표 진행 중</span>' : '투표 마감'} · <b style="color:#fff">${n}</b>명 참여`; });
+      first => { if (!first) pop();
+        updateBars(main, c, { pct: true, crown: true }); document.getElementById('pS').innerHTML = `${ph === 'open' ? '<span style="color:#3ddc97">● 투표 진행 중</span>' : '투표 마감'} · <b style="color:#fff">${n}</b>명 참여`; });
   }
 
   // ---------- 퀴즈 ----------
@@ -142,11 +163,12 @@
           updateBars(main.querySelector('.reveal-grid > div'), c, { correct: act.answer });
           const tb = main.querySelector('.tbars'); if (tb) updateBars(tb, tAcc, { fmt: v => v + '%' });
           document.getElementById('qTop').innerHTML = lbRows(top);
-          once('q' + idx + ':' + st.openedAt, () => setTimeout(() => confetti(160), 400));
+          once('q' + idx + ':' + st.openedAt, () => { sfx('fanfare'); setTimeout(() => { confetti(160); sfx('cheer'); }, 400); });
         });
       return;
     }
     const deadline = (st.openedAt || 0) + act.duration * 1000; const n = vals(ans).length; const on = Math.max(onlineN(), n, 1);
+    if (ph === 'open') { cue('qo' + idx + st.openedAt, 'ding'); if (B.now() < deadline) duckNow = true; }
     view('q-o' + idx + st.openedAt, JSON.stringify([n, on]), () => `${label(tag)}<div class="headline">${esc(act.title)}</div>
       <div class="quiz-wrap"><div>${act.ox ? `<div class="ox-big"><div style="color:#ff5a6e">O</div><div style="color:#4da3ff">X</div></div>`
         : `<div class="qopts">${opts.map((o, i) => `<div class="qopt" style="--c:${COLORS[i % COLORS.length]}"><span class="k">${OPT_KEYS[i]}</span>${esc(o)}</div>`).join('')}</div>`}</div>
@@ -170,6 +192,7 @@
     view('wc' + idx, JSON.stringify([items, ph]), () => `${label('☁️ 워드클라우드')}<div class="headline" style="margin-bottom:2.4vh">${esc(act.title)}</div><div class="cloud" id="cl"></div><div class="sub" id="clS" style="margin-top:2.4vh"></div>`,
       () => {
         document.getElementById('cl').innerHTML = shown.map(([w, c]) => `<span class="${seen.has(w) ? '' : 'new'}" style="font-size:${(2.6 + 9.5 * Math.sqrt(c / max)).toFixed(1)}vh;color:${COLORS[Core.hash(w) % COLORS.length]}">${esc(w)}</span>`).join('') || '<span class="sub" style="animation:blink 1.4s infinite">첫 단어를 기다리는 중...</span>';
+        if (shown.some(([w]) => !seen.has(w)) && seen.size) pop();
         shown.forEach(([w]) => seen.add(w));
         document.getElementById('clS').innerHTML = `<b style="color:#fff">${vals(ans).length}</b>명 참여${ph === 'closed' ? ' · 입력 마감' : ''}`;
       });
@@ -187,11 +210,11 @@
         const ball = document.getElementById('ball'); const last = called[called.length - 1];
         const prev = lastCalled[idx]; lastCalled[idx] = called.length;
         ball.innerHTML = last ? `<div><div class="no">${called.length}번째</div><div class="w">${esc(last)}</div></div>` : `<div><div class="w" style="font-size:12vh">🎱</div><div class="no">${ph === 'ready' ? '빙고판을 확인하세요!' : '첫 공을 기다리는 중'}</div></div>`;
-        if (!first && prev != null && called.length > prev) { ball.classList.remove('drop'); void ball.offsetWidth; ball.classList.add('drop'); }
+        if (!first && prev != null && called.length > prev) { ball.classList.remove('drop'); void ball.offsetWidth; ball.classList.add('drop'); setTimeout(() => sfx('ball'), 650); }
         document.getElementById('hist').innerHTML = called.slice(0, -1).reverse().slice(0, 28).map(w => `<span>${esc(w)}</span>`).join('');
         document.getElementById('bwN').textContent = winners.length ? `(${winners.length}명)` : '';
         document.getElementById('bw').innerHTML = winners.slice(0, 8).map((w, i) => `<li><span class="r">${['🥇', '🥈', '🥉'][i] || i + 1}</span><span class="n">${esc(w.name)}</span>${w.team ? `<span class="tm" style="--c:${tc(w.team)}">${esc(w.team)}</span>` : ''}</li>`).join('') + (winners.length > 8 ? `<li class="sub">외 ${winners.length - 8}명</li>` : '') || '<li class="sub" style="justify-content:center">아직 없음 — 누가 먼저일까요?</li>';
-        if (winners.length) once('bw' + idx + ':' + winners.length, () => { if (!first) confetti(120); });
+        if (winners.length) once('bw' + idx + ':' + winners.length, () => { if (!first) { confetti(120); sfx('win'); } });
       });
   }
 
@@ -202,11 +225,13 @@
     const revealAt = (st.at || 0) + 4500; const revealed = ph === 'spin' && B.now() > revealAt;
     const w = vals(st.winners);
     if (ph !== 'spin') return view('l-r' + idx, String(Object.keys(players()).length), () => `${label('🎁 경품 추첨')}<div class="gift">🎁</div><div class="headline">${esc(act.title)}</div><div class="sub">행운의 주인공 <b style="color:var(--gold)">${act.count}명</b>은 누구일까요?</div>`);
+    if (ph === 'spin' && !revealed) duckNow = true;
     if (!revealed) return view('l-s' + idx + st.at, '', () => `${label('🎰 추첨 중')}<div class="headline">${esc(act.title)}</div><div class="reel glass"><div class="nm" id="reel">...</div></div><div class="sub" style="margin-top:3vh;animation:blink .8s infinite">두근두근...</div>`,
-      () => startReel(st.at, revealAt));
+      () => { startReel(st.at, revealAt); cue('dr' + st.at, 'drumroll', Math.max(.5, (revealAt - B.now()) / 1000)); });
+    
     view('l-v' + idx + st.at, JSON.stringify(w), () => `${label('🎉 당첨을 축하합니다 🎉')}<div class="headline">${esc(act.title)}</div>
       <div class="winners">${w.map((pid, i) => `<div class="glass wcard" style="animation-delay:${i * .25}s"><div style="font-size:5vh">🏆</div><div class="nm gold">${esc(nameOf(pid))}</div><div class="tm">${esc((players()[pid] || {}).team || '')}</div></div>`).join('')}</div>`,
-      () => once('lot' + idx + st.at, () => { confetti(220); setTimeout(() => confetti(160), 900); }));
+      () => once('lot' + idx + st.at, () => { confetti(220); sfx('cymbal'); sfx('fanfare'); setTimeout(() => { confetti(160); sfx('cheer'); }, 900); }));
   }
   function startReel(start, end) {
     clearTimeout(reelTimer);
@@ -230,7 +255,7 @@
     const top = Core.ranking(players(), D.points).filter(r => r.score > 0).slice(0, 8);
     view('r' + idx, JSON.stringify(top), () => `${label('🏆 ' + esc(act.title))}${podiumHTML(top)}
       <div style="display:flex;justify-content:center;gap:1.4vw;margin-top:3vh;flex-wrap:wrap">${top.slice(3).map((r, i) => `<div class="tchip" style="--c:${tc(r.team)}"><span class="rk">${i + 4}위</span>${esc(r.name)} <b>${r.score.toLocaleString()}</b></div>`).join('')}</div>`,
-      () => once('rank' + idx, () => setTimeout(() => confetti(200), 1100)));
+      () => once('rank' + idx, () => { sfx('drumroll', 1); setTimeout(() => { confetti(200); sfx('fanfare'); sfx('cheer'); }, 1100); }));
   }
 
   // ---------- 팀 대항 탭 레이스 ----------
@@ -239,6 +264,9 @@
     const w = Core.raceWindow(act, st); const now = B.now();
     const stage = ph === 'open' ? (now < w.start ? 'count' : now < w.end ? 'go' : 'end') : ph;
     const r = Core.raceResult(D, idx, act);
+    if (stage === 'count') { duckNow = true; cue('rc' + st.openedAt + ':' + Math.ceil((w.start - now) / 1000), 'beep'); }
+    if (stage === 'go') { duckNow = true; cue('rg' + st.openedAt, 'go'); }
+    if (stage === 'end' || (stage === 'closed' && now < w.end + 4000)) cue('re' + st.openedAt, 'whistle');
     const lanes = teams.length ? teams.map(t => { const x = r.teams.find(y => y.team === t) || { avg: 0, n: 0 }; return { id: t, name: t, emoji: Core.teamEmoji(teams, t), color: tc(t), v: x.avg, n: x.n }; })
       : r.indiv.slice(0, 6).map((x, k) => ({ id: x.pid, name: x.name, emoji: '🏃', color: COLORS[k], v: x.taps, n: 1 }));
     const lead = Math.max(0, ...lanes.map(l => l.v)); const scale = Math.max(lead * 1.08, act.duration * 5);
@@ -262,7 +290,7 @@
           el.querySelector('.v').innerHTML = stage === 'reveal' ? `${['🥇', '🥈', '🥉'][rk] || ''} ${bonus[rk] && teams.length ? `<small style="color:var(--gold)">+${bonus[rk]}점</small>` : ''}`
             : `${l.v}<small>${teams.length ? ` 회/인 · ${l.n}명` : ' 회'}</small>`;
         });
-        if (stage === 'reveal') once('race' + idx + st.openedAt, () => confetti(220));
+        if (stage === 'reveal') once('race' + idx + st.openedAt, () => { confetti(220); sfx('fanfare'); sfx('cheer'); });
       });
   }
 
@@ -271,7 +299,7 @@
     const top = Core.ranking(players(), D.points).filter(r => r.score > 0).slice(0, 3);
     view('final', JSON.stringify(top), () => `${label('🎄 THANK YOU 🎄')}<div class="hero-title gold" style="font-size:8vh">함께해 주셔서 감사합니다</div>
       <div class="sub" style="margin-bottom:3vh">${esc(content.title || '')}</div>${top.length ? podiumHTML(top) : ''}`,
-      () => once('final', () => { confetti(250); let k = 0; const t = setInterval(() => { confetti(120); if (++k > 4) clearInterval(t); }, 2500); }));
+      () => once('final', () => { confetti(250); sfx('fanfare'); sfx('cheer'); let k = 0; const t = setInterval(() => { confetti(120); if (++k > 4) clearInterval(t); }, 2500); }));
   }
 
   // ---------- 눈 ----------

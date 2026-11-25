@@ -59,7 +59,7 @@
   function render(force) {
     if (!D) return;
     document.getElementById('hTitle').textContent = '🎛️ ' + ((D.content && D.content.title) || '진행자');
-    const topKey = JSON.stringify([meta().status, Object.keys(online()).length, Object.keys(players()).length]);
+    const topKey = JSON.stringify([meta().status, meta().sound, Object.keys(online()).length, Object.keys(players()).length]);
     if (force || topKey !== lastTop) { lastTop = topKey; renderTop(); }
     if (tab === 'run') { const k = JSON.stringify([meta(), D.content, D.state, D.answers, D.points, D.bingo, D.taps, D.players, Object.keys(online()).length, lot]); if (force || k !== lastRun) { lastRun = k; renderRun(); } }
     if (tab === 'people') { const k = JSON.stringify([D.players, D.online, D.points]); if (force || k !== lastPeople) { lastPeople = k; renderPeople(); } }
@@ -68,6 +68,7 @@
   function renderTop() {
     const s = meta().status || 'waiting';
     const pUrl = Core.pageUrl('index.html'), sUrl = Core.pageUrl('screen.html');
+    const snd = Object.assign({ bgm: true, vol: .4, sfx: true }, meta().sound || {});
     document.getElementById('top').innerHTML = `<div class="card" style="padding:14px">
       <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between">
         <div class="seg row" style="flex:none;gap:6px">
@@ -78,7 +79,16 @@
       <div class="row" style="margin-top:10px;flex-wrap:wrap">
         <div class="linkbox">📱 참가자 URL (사전 배포용): <a href="${esc(pUrl)}" target="_blank">${esc(pUrl)}</a></div>
         <div class="linkbox">🖥️ 대형 화면 URL (프로젝터): <a href="${esc(sUrl)}" target="_blank">${esc(sUrl)}</a></div></div>
+      <div class="row" style="margin-top:10px;align-items:center;flex-wrap:wrap;gap:8px">
+        <button id="sBgm" class="${snd.bgm ? 'primary' : 'ghost'}" style="flex:none">🎵 배경음악 ${snd.bgm ? '켜짐' : '꺼짐'}</button>
+        <label class="small muted" style="flex:none;display:flex;align-items:center;gap:6px">볼륨 <input id="sVol" type="range" min="0" max="100" value="${Math.round(snd.vol * 100)}" style="width:140px;padding:0"></label>
+        <button id="sSfx" class="${snd.sfx ? 'primary' : 'ghost'}" style="flex:none">🔔 효과음 ${snd.sfx ? '켜짐' : '꺼짐'}</button>
+        <span class="muted small" style="flex:1;min-width:200px">소리는 대형 화면 PC에서 나옵니다. 대형 화면을 처음 띄운 뒤 화면을 한 번 클릭해야 소리가 켜져요.</span></div>
       <p class="muted small" style="margin:8px 0 0">현재 상태: <b>${{ waiting: '대기 — 참가자는 “곧 시작합니다” 화면만 봅니다', live: '오픈 — 참가자가 이름을 입력하고 입장할 수 있습니다', ended: '종료 — 참가자에게 감사 화면이 보입니다' }[s]}</b></p></div>`;
+    const setSnd = o => B.set('meta/sound', Object.assign({}, snd, o));
+    document.getElementById('sBgm').onclick = () => setSnd({ bgm: !snd.bgm });
+    document.getElementById('sSfx').onclick = () => setSnd({ sfx: !snd.sfx });
+    document.getElementById('sVol').onchange = e => setSnd({ vol: +e.target.value / 100 });
     document.querySelectorAll('#top [data-s]').forEach(b => b.onclick = () => {
       if (b.dataset.s === 'ended' && !confirm('행사를 종료할까요? 참가자 화면이 종료 화면으로 바뀝니다.')) return;
       B.set('meta/status', b.dataset.s);
