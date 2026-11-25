@@ -118,3 +118,13 @@ textarea.editor{min-height:60vh;font-family:ui-monospace,Menlo,Consolas,monospac
 .ok{color:var(--green);font-size:14px}
 .linkbox{font-size:13px;word-break:break-all;background:var(--bg2);border-radius:10px;padding:8px 10px}
 .linkbox a{color:var(--blue)}
+
+/* 탭 레이스 (참가자) */
+.race-count{font-size:120px;font-weight:900;color:var(--gold);line-height:1.1;animation:pop .9s ease infinite}
+.tap-btn{--c:var(--gold);width:min(78vw,300px);aspect-ratio:1;border-radius:50%;margin:10px auto 6px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:radial-gradient(circle at 35% 30%,#fff6 0,transparent 40%),var(--c);color:#14122e;box-shadow:0 10px 0 #0006,0 0 40px var(--c);
+  touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.tap-btn span{font-size:72px;font-weight:900;line-height:1}
+.tap-btn small{font-size:22px;font-weight:800;letter-spacing:2px}
+.tap-btn.hit{animation:tap .12s ease}
+@keyframes tap{50%{transform:scale(.93) translateY(6px);box-shadow:0 4px 0 #0006,0 0 60px var(--c)}}

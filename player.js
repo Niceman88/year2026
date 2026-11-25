@@ -51,16 +51,16 @@
     const joined = pid && S.me;
     hdr.innerHTML = joined ? `<span><b>${esc(S.me.name)}</b>${S.me.team ? ' · ' + esc(S.me.team) : ''}</span><span class="score">${myTotal().toLocaleString()}점</span>` : `<span>${esc(title)}</span><span></span>`;
 
-    if (status === 'waiting') return view('wait', `<div class="card hero"><div class="emoji">🎄</div><h1>${esc(title)}</h1><p class="muted">행사가 곧 시작됩니다.<br>진행자가 시작하면 이 화면이 자동으로 바뀌어요.<br>창을 닫지 말고 기다려 주세요!</p><div class="pulse muted small" style="margin-top:20px">● 대기 중</div></div>`);
+    if (status === 'waiting' || !S.content) return view('wait', `<div class="card hero"><div class="emoji">🎄</div><h1>${esc(title)}</h1><p class="muted">행사가 곧 시작됩니다.<br>진행자가 시작하면 이 화면이 자동으로 바뀌어요.<br>창을 닫지 말고 기다려 주세요!</p><div class="pulse muted small" style="margin-top:20px">● 대기 중</div></div>`);
     if (status === 'ended') return view('end' + myTotal(), `<div class="card hero"><div class="emoji">🎉</div><h1>함께해 주셔서 감사합니다!</h1>${joined ? `<p class="muted">나의 최종 점수</p><div class="big-num">${myTotal().toLocaleString()}점</div>` : ''}</div>`);
     if (pid && !S.ready.me) return;
     if (!joined) return view('join', joinHTML(), bindJoin);
 
     const idx = cur(); const act = acts()[idx];
     if (!act) return view('idle', `<div class="card hero"><div class="emoji">⏳</div><h1>잠시만 기다려 주세요</h1><p class="muted">곧 다음 순서가 시작됩니다.</p></div>`);
-    if (pid && S.ready.ans === 0 && act.type !== 'rank' && act.type !== 'lottery' && act.type !== 'bingo') return;
+    if (pid && S.ready.ans === 0 && !['rank', 'lottery', 'bingo', 'race'].includes(act.type)) return;
     const st = S.state[idx] || {};
-    const fn = { poll: vPoll, quiz: vQuiz, wordcloud: vCloud, bingo: vBingo, lottery: vLottery, rank: vRank }[act.type];
+    const fn = { poll: vPoll, quiz: vQuiz, wordcloud: vCloud, bingo: vBingo, lottery: vLottery, rank: vRank, race: vRace }[act.type];
     if (fn) fn(idx, act, st);
   }
   function tick() {
@@ -199,6 +199,50 @@
     if (!revealed) return view(key, `<div class="card hero"><div class="emoji pulse">🎰</div><h1>추첨 중...</h1><p class="muted">두근두근! 큰 화면을 봐 주세요</p></div>`);
     view(key, win ? `<div class="card hero"><div class="emoji">🎁</div><h1 class="result-good">축하합니다! 당첨되셨어요!</h1><p class="muted">${esc(act.title)}<br>진행자 안내에 따라 수령해 주세요.</p></div>`
       : `<div class="card hero"><div class="emoji">🍀</div><h1>아쉽지만 다음 기회에!</h1><p class="muted">${esc(act.title)}</p></div>`);
+  }
+
+
+  // ---------- 팀 대항 탭 레이스 ----------
+  const race = { idx: null, count: 0, sent: 0, timer: null };
+  function vRace(idx, act, st) {
+    const ph = st.phase || 'ready';
+    const teams = vals(S.content.teams); const myTeam = S.me.team || '';
+    const color = Core.teamColor(teams, myTeam);
+    if (race.idx !== idx || (ph === 'ready')) { if (race.idx !== idx || race.count) { race.idx = idx; race.count = 0; race.sent = 0; } }
+    const w = Core.raceWindow(act, st); const now = B.now();
+    const stage = ph === 'open' ? (now < w.start ? 'count' : now < w.end ? 'go' : 'end') : ph;
+    const key = JSON.stringify(['race', idx, stage, stage === 'count' ? Math.ceil((w.start - now) / 1000) : 0, ph === 'reveal' ? (S.points[idx] || {})[pid] || 0 : 0]);
+    const head = `<div class="tag">탭 레이스 · ${act.duration}초</div><div class="q-title">${esc(act.title)}</div>`;
+    if (stage === 'ready') return view(key, `<div class="card hero">${head}<div class="emoji">${Core.teamEmoji(teams, myTeam)}</div>
+      <p>${myTeam ? `<b style="color:${color}">${esc(myTeam)}</b>의 대표 선수!` : '개인전!'}</p>
+      <p class="muted">시작되면 나타나는 버튼을 <b>최대한 빠르게</b> 연타하세요.<br>${teams.length ? '팀원 1인당 평균 탭 수로 승부합니다.' : ''}</p></div>`);
+    if (stage === 'count') return view(key, `<div class="card hero">${head}<div class="race-count">${Math.ceil((w.start - now) / 1000)}</div><p class="muted">준비...</p></div>`);
+    if (stage === 'go') {
+      if (!race.timer) race.timer = setInterval(() => flushRace(idx), 500);
+      return view(key, `<div class="card center" style="padding:16px">${head}
+        <div class="timer"><i data-deadline="${w.end}" data-total="${act.duration * 1000}" style="width:100%"></i></div>
+        <button class="tap-btn" id="tapBtn" style="--c:${color}"><span id="tapN">${race.count}</span><small>TAP!</small></button></div>`, () => {
+        const btn = document.getElementById('tapBtn'); const n = document.getElementById('tapN');
+        let lastTs = 0;
+        btn.addEventListener('pointerdown', e => {
+          e.preventDefault();
+          if (B.now() > w.end) return;
+          if (e.timeStamp - lastTs < 40) return; // 초당 25회 이상은 무시 (오토클릭 방지)
+          lastTs = e.timeStamp; race.count++; n.textContent = race.count;
+          btn.classList.remove('hit'); void btn.offsetWidth; btn.classList.add('hit');
+          if (navigator.vibrate) navigator.vibrate(8);
+        });
+        btn.addEventListener('contextmenu', e => e.preventDefault());
+      });
+    }
+    flushRace(idx); if (race.timer) { clearInterval(race.timer); race.timer = null; }
+    if (stage === 'reveal') { const p = (S.points[idx] || {})[pid] || 0;
+      return view(key, `<div class="card hero">${head}<div class="emoji">${p ? '🏆' : '👏'}</div><h1>${p ? `팀 보너스 +${p}점!` : '수고하셨습니다!'}</h1><p class="muted">나의 기록 <b style="color:var(--text)">${race.count || '-'}회</b> · 결과는 큰 화면에서!</p></div>`); }
+    view(key, `<div class="card hero">${head}<div class="emoji">⏱️</div><h1>종료!</h1><p class="muted">나의 기록 <b style="color:var(--text)">${race.count}회</b><br>결과 발표를 기다려 주세요</p></div>`);
+  }
+  function flushRace(idx) {
+    if (race.idx !== idx || race.count === race.sent) return;
+    race.sent = race.count; B.set(`taps/${idx}/${pid}`, race.count);
   }
 
   // ---------- 순위 ----------

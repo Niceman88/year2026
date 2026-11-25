@@ -128,13 +128,46 @@ window.Core = (function () {
       .sort((a, b) => a[1].at - b[1].at)
       .map(([pid, r]) => ({ pid, at: r.at, name: players[pid].name, team: players[pid].team || '' }));
   }
-  // 퀴즈 점수: 정답 500점 + 남은 시간 비율 × 500점 (최대 1000점)
+  // ---------- 점수 규칙 (config.js 의 window.SCORING 으로 바꿀 수 있음) ----------
+  const SCORING = Object.assign({ correct: 100, speedBonus: 50, teamRace: [100, 60, 30] }, window.SCORING || {});
+  // 퀴즈: 정답 100점 + 빨리 맞힐수록 최대 50점 (제한시간 끝에 맞히면 100점, 바로 맞히면 150점)
   function quizPoints(ans, act, st) {
     if (!ans || ans.v !== act.answer || !st || !st.openedAt || !ans.at) return 0;
     const el = Math.max(0, (ans.at - st.openedAt) / 1000);
     if (el > act.duration + 1.5) return 0;
-    return Math.round(500 + 500 * Math.max(0, 1 - el / act.duration));
+    return Math.round(SCORING.correct + SCORING.speedBonus * Math.max(0, 1 - el / act.duration));
   }
+  // 탭 레이스: 3초 카운트다운 후 duration초 동안 진행
+  const RACE_COUNTDOWN = 3000;
+  function raceWindow(act, st) { const s = (st.openedAt || 0) + RACE_COUNTDOWN; return { start: s, end: s + act.duration * 1000 }; }
+  // 팀별 1인당 평균 탭 수 (탭을 1번 이상 한 사람 기준). 팀이 없으면 개인전
+  function raceResult(D, idx, act) {
+    const players = D.players || {}; const taps = (D.taps || {})[idx] || {};
+    const teams = vals(D.content && D.content.teams);
+    const agg = {}; teams.forEach(t => { agg[t] = { team: t, sum: 0, n: 0 }; });
+    const indiv = [];
+    Object.entries(taps).forEach(([pid, c]) => {
+      const p = players[pid]; if (!p || !c) return;
+      indiv.push({ pid, name: p.name, team: p.team || '', taps: c });
+      if (p.team) { agg[p.team] = agg[p.team] || { team: p.team, sum: 0, n: 0 }; agg[p.team].sum += c; agg[p.team].n++; }
+    });
+    const teamRows = Object.values(agg).map(a => ({ ...a, avg: a.n ? Math.round(a.sum / a.n * 10) / 10 : 0 })).sort((a, b) => b.avg - a.avg);
+    indiv.sort((a, b) => b.taps - a.taps);
+    return { teams: teamRows, indiv };
+  }
+  function racePoints(D, idx, act) {
+    const r = raceResult(D, idx, act); const pts = {}; const bonus = vals(SCORING.teamRace);
+    if (r.teams.length) {
+      r.teams.forEach((t, k) => { const b = bonus[k] || 0; if (!b || !t.n) return; r.indiv.forEach(i => { if (i.team === t.team) pts[i.pid] = b; }); });
+    } else {
+      r.indiv.forEach((i, k) => { if (bonus[k]) pts[i.pid] = bonus[k]; });
+    }
+    return pts;
+  }
+  const TEAM_COLORS = ['#ff5a6e', '#4da3ff', '#ffcc4d', '#3ddc97', '#b98cff', '#ff9f43', '#7ee0ff', '#ff8fd0'];
+  const TEAM_EMOJI = ['🦊', '🐳', '🐯', '🐸', '🦄', '🐻', '🐧', '🐰'];
+  function teamColor(teams, name) { const i = vals(teams).indexOf(name); return i < 0 ? '#a6acd6' : TEAM_COLORS[i % TEAM_COLORS.length]; }
+  function teamEmoji(teams, name) { const i = vals(teams).indexOf(name); return i < 0 ? '🏃' : TEAM_EMOJI[i % TEAM_EMOJI.length]; }
   function totals(points) {
     const t = {};
     if (points) for (const idx in points) { const m = points[idx] || {}; for (const pid in m) t[pid] = (t[pid] || 0) + (m[pid] || 0); }
@@ -154,7 +187,7 @@ window.Core = (function () {
   }
 
   // ---------- 콘텐츠 해석 ----------
-  const TYPE_NAMES = { poll: '투표', quiz: '퀴즈', wordcloud: '워드클라우드', bingo: '빙고', lottery: '추첨', rank: '순위' };
+  const TYPE_NAMES = { poll: '투표', quiz: '퀴즈', wordcloud: '워드클라우드', bingo: '빙고', lottery: '추첨', rank: '순위', race: '탭 레이스' };
   const splitList = s => s.split(/[,，、\n]/).map(x => x.trim()).filter(Boolean);
   function parseContent(text) {
     const out = { title: '연말 행사', teams: [], activities: [] }; const errors = [];
@@ -192,7 +225,8 @@ window.Core = (function () {
     else if (/^빙고$/.test(kind)) a.type = 'bingo';
     else if (/^(추첨|경품)$/.test(kind)) a.type = 'lottery';
     else if (/^(순위|랭킹)$/.test(kind)) a.type = 'rank';
-    else { errors.push(`${ln}행: [${tag}] — 알 수 없는 종류예요 (투표/퀴즈/OX/워드클라우드/빙고/추첨/순위)`); return { type: '_bad' }; }
+    else if (/^(탭레이스|탭|팀대항|레이스)$/.test(kind)) { a.type = 'race'; a.duration = num(/(\d+)\s*초/) || 10; }
+    else { errors.push(`${ln}행: [${tag}] — 알 수 없는 종류예요 (투표/퀴즈/OX/워드클라우드/빙고/추첨/순위/탭레이스)`); return { type: '_bad' }; }
     if (a.type === 'quiz') { a.duration = num(/(\d+)\s*초/) || (a.ox ? 10 : 20); a.options = a.ox ? ['O', 'X'] : []; a.answer = -1; }
     if (a.type === 'poll') a.options = [];
     if (a.type === 'bingo') { a.size = num(/(\d)\s*[x×X*]\s*\d/) || 5; a.lines = num(/(\d+)\s*줄/) || (a.size <= 3 ? 1 : 3); a.words = []; }
@@ -235,5 +269,5 @@ window.Core = (function () {
     if (!a.title) a.title = TYPE_NAMES[a.type];
   }
 
-  return { DEMO, EVENT, ROOT, TS, B, vals, esc, hash, rng, shuffle, newId, pageUrl, bingoBoard, bingoLines, bingoWinners, quizPoints, totals, ranking, teamRanking, parseContent, TYPE_NAMES };
+  return { DEMO, EVENT, ROOT, TS, B, vals, esc, hash, rng, shuffle, newId, pageUrl, bingoBoard, bingoLines, bingoWinners, quizPoints, SCORING, RACE_COUNTDOWN, raceWindow, raceResult, racePoints, teamColor, teamEmoji, TEAM_COLORS, totals, ranking, teamRanking, parseContent, TYPE_NAMES };
 })();

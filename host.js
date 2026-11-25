@@ -30,8 +30,10 @@
   B.on('', v => {
     D = v || {};
     if (!seeded && !D.content) { seeded = true; const r = Core.parseContent(window.DEFAULT_CONTENT || ''); B.update('', { content: r.content, contentText: window.DEFAULT_CONTENT || '' }); }
-    seeded = true; render();
+    seeded = true; scheduleRender();
   });
+  let rTimer = null;
+  function scheduleRender() { if (rTimer) return; rTimer = setTimeout(() => { rTimer = null; render(); }, 250); }
   setInterval(tick, 300);
 
   const meta = () => D.meta || {};
@@ -48,6 +50,7 @@
     // 퀴즈 시간이 끝나면 자동 마감
     const i = curIdx(); const a = acts()[i]; const st = stOf(i);
     if (a && a.type === 'quiz' && st.phase === 'open' && st.openedAt && B.now() > st.openedAt + a.duration * 1000 + 1500) B.set(`state/${i}/phase`, 'closed');
+    if (a && a.type === 'race' && st.phase === 'open' && st.openedAt && B.now() > Core.raceWindow(a, st).end + 2000) B.set(`state/${i}/phase`, 'closed');
     const cd = document.getElementById('cd');
     if (cd) cd.textContent = Math.max(0, Math.ceil((+cd.dataset.deadline - B.now()) / 1000)) + '초';
   }
@@ -58,7 +61,7 @@
     document.getElementById('hTitle').textContent = '🎛️ ' + ((D.content && D.content.title) || '진행자');
     const topKey = JSON.stringify([meta().status, Object.keys(online()).length, Object.keys(players()).length]);
     if (force || topKey !== lastTop) { lastTop = topKey; renderTop(); }
-    if (tab === 'run') { const k = JSON.stringify([meta(), D.content, D.state, D.answers, D.points, D.bingo, D.players, Object.keys(online()).length, lot]); if (force || k !== lastRun) { lastRun = k; renderRun(); } }
+    if (tab === 'run') { const k = JSON.stringify([meta(), D.content, D.state, D.answers, D.points, D.bingo, D.taps, D.players, Object.keys(online()).length, lot]); if (force || k !== lastRun) { lastRun = k; renderRun(); } }
     if (tab === 'people') { const k = JSON.stringify([D.players, D.online, D.points]); if (force || k !== lastPeople) { lastPeople = k; renderPeople(); } }
   }
 
@@ -145,6 +148,14 @@
         ${w.length ? `<p>당첨: ${w.map(pid => `<b style="color:var(--gold)">${esc((players()[pid] || {}).name || '?')}</b> <span class="muted small">${esc((players()[pid] || {}).team || '')}</span>`).join(', ')}</p>` : ''}`;
       btns = btn('draw', w.length ? '🔁 다시 추첨' : '🎰 추첨!', 'primary', !pool.length);
     }
+    if (a.type === 'race') {
+      const r = Core.raceResult(D, i, a); const teams = vals(D.content.teams);
+      const w = Core.raceWindow(a, st);
+      body = `<p class="muted">${ph === 'open' ? (B.now() < w.start ? '카운트다운 중...' : '🔥 레이스 진행 중!') : ph === 'ready' ? '시작을 누르면 3초 카운트다운 후 ' + a.duration + '초간 진행됩니다.' : ''} 참여 ${r.indiv.length}명</p>
+        ${r.teams.length ? `<table><tr><th>순위</th><th>팀</th><th>참여</th><th>1인당 평균</th><th>보너스</th></tr>${r.teams.map((t, k) => `<tr><td>${k + 1}</td><td><span style="color:${Core.teamColor(teams, t.team)}">●</span> ${esc(t.team)}</td><td>${t.n}</td><td><b>${t.avg}</b></td><td>${vals(Core.SCORING.teamRace)[k] ? '+' + vals(Core.SCORING.teamRace)[k] : '-'}</td></tr>`).join('')}</table>` : ''}
+        <p class="muted small">개인 TOP: ${r.indiv.slice(0, 5).map(x => `${esc(x.name)}(${x.taps})`).join(' · ') || '-'}</p>`;
+      btns = btn('start', `▶ 레이스 시작 (${a.duration}초)`, 'primary', ph !== 'ready') + btn('reveal', '🏆 결과 발표 · 보너스 지급', 'primary', ph !== 'closed');
+    }
     if (a.type === 'rank') {
       const top = Core.ranking(players(), D.points).slice(0, 10);
       const teams = Core.teamRanking(players(), D.points, vals(D.content.teams));
@@ -156,10 +167,10 @@
     on('open', () => B.set(`state/${i}/phase`, 'open'));
     on('close', () => B.set(`state/${i}/phase`, 'closed'));
     on('start', () => B.set(`state/${i}`, { phase: 'open', openedAt: TS }));
-    on('reveal', () => reveal(i, a));
+    on('reveal', () => a.type === 'race' ? B.update('', { [`points/${i}`]: Core.racePoints(D, i, a), [`state/${i}/phase`]: 'reveal' }) : reveal(i, a));
     on('draw', () => a.type === 'bingo' ? drawWord(i, a) : drawLottery(i));
     on('undo', () => { const c = vals(st.called); if (confirm(`"${c[c.length - 1]}" 뽑기를 취소할까요?`)) B.remove(`state/${i}/called/${c.length - 1}`); });
-    on('reset', () => { if (confirm('이 순서의 응답·점수·결과를 모두 지울까요?')) B.update('', { [`state/${i}`]: null, [`answers/${i}`]: null, [`points/${i}`]: null, [`bingo/${i}`]: null }); });
+    on('reset', () => { if (confirm('이 순서의 응답·점수·결과를 모두 지울까요?')) B.update('', { [`state/${i}`]: null, [`answers/${i}`]: null, [`points/${i}`]: null, [`bingo/${i}`]: null, [`taps/${i}`]: null }); });
     const lc = p.querySelector('#lc'); if (lc) { lc.onchange = () => { lot.count = Math.max(1, +lc.value || 1); render(); }; p.querySelector('#lo').onchange = e => { lot.onlineOnly = e.target.checked; render(); }; p.querySelector('#lx').onchange = e => { lot.exclude = e.target.checked; render(); }; }
   }
 
@@ -201,6 +212,7 @@
       <code>[빙고 5x5 3줄] 제목</code> + 다음 줄에 단어들을 쉼표로 (25개 이상)<br>
       <code>[추첨 3명] 경품 이름</code><br>
       <code>[순위] 제목</code> — 누적 점수 순위 화면<br>
+      <code>[탭레이스 10초] 제목</code> — 팀 대항 연타 경주 (팀 1인당 평균)<br>
       <code># </code>로 시작하는 줄은 메모(무시)<br><br>
       ⚠️ 행사 중에 순서를 끼워 넣거나 지우면 이미 받은 응답이 다른 순서에 붙을 수 있어요. 행사 시작 후에는 오타 수정 정도만 하세요.</div>
       <div id="pv" style="margin-top:14px"></div></div>
@@ -235,7 +247,7 @@
       ${rank.map((r, k) => `<tr><td>${k + 1}</td><td>${esc(r.name)}</td><td>${esc(r.team)}</td><td>${r.score}</td><td>${online()[r.pid] ? '🟢' : '⚪'}</td><td><button class="ghost small" data-del="${esc(r.pid)}" style="padding:4px 8px">삭제</button></td></tr>`).join('')}</table></div></div>`;
     el.querySelector('#wipe').onclick = () => {
       if (!confirm('정말 전체 초기화할까요? 되돌릴 수 없습니다.')) return;
-      B.update('', { players: null, online: null, answers: null, points: null, bingo: null, state: null, 'meta/current': -1, 'meta/status': 'waiting' });
+      B.update('', { players: null, online: null, answers: null, points: null, bingo: null, taps: null, state: null, 'meta/current': -1, 'meta/status': 'waiting' });
     };
     el.querySelectorAll('[data-del]').forEach(b => b.onclick = () => {
       const id = b.dataset.del; if (!confirm(`${players()[id].name} 님을 삭제할까요?`)) return;
