@@ -132,14 +132,14 @@ body.screen .demo-banner{opacity:.6}
 @keyframes winpop{from{transform:scale(.2);opacity:0}}
 
 /* 시상대 */
-.podium{display:flex;align-items:flex-end;justify-content:center;gap:1.6vw;height:46vh}
+.podium{display:flex;align-items:flex-end;justify-content:center;gap:1.6vw;min-height:40vh}
 .pod{width:20vw;display:flex;flex-direction:column;align-items:center;justify-content:flex-end}
 .pod .who{text-align:center;margin-bottom:1.4vh;animation:enter .8s backwards}
-.pod .who .md{font-size:7vh} .pod .who .nm{font-size:4vh;font-weight:900} .pod .who .ps{font-size:2.6vh;color:var(--gold);font-weight:800}
+.pod .who .md{font-size:5.4vh;line-height:1.1} .pod .who .nm{font-size:3.8vh;font-weight:900;line-height:1.2} .pod .who .ps{font-size:2.6vh;color:var(--gold);font-weight:800}
 .pod .blk{width:100%;border-radius:2vh 2vh 0 0;display:grid;place-items:center;font-size:9vh;font-weight:900;color:#ffffffcc;animation:rise 1s cubic-bezier(.2,.8,.2,1) backwards;
   background:linear-gradient(180deg,var(--c),#ffffff10);box-shadow:0 0 5vh var(--c)}
 @keyframes rise{from{transform:scaleY(0);transform-origin:bottom}}
-.pod.p1 .blk{height:26vh;--c:#ffcc4d}.pod.p2 .blk{height:19vh;--c:#c0c6e8}.pod.p3 .blk{height:14vh;--c:#e09a5c}
+.pod.p1 .blk{height:20vh;--c:#ffcc4d}.pod.p2 .blk{height:14vh;--c:#c0c6e8}.pod.p3 .blk{height:10vh;--c:#e09a5c}
 .pod.p1 .who{animation-delay:1s}.pod.p2 .who{animation-delay:.6s}.pod.p3 .who{animation-delay:.3s}
 
 /* 탭 레이스 */
@@ -158,3 +158,30 @@ body.screen .demo-banner{opacity:.6}
 .race-time{font-size:7vh;font-weight:900;text-align:center;margin-bottom:2vh}
 
 .snd-btn{position:fixed;left:2vw;bottom:2.5vh;z-index:60;font-size:2vh;font-weight:800;padding:1.2vh 1.6vw;border-radius:99px;background:#ffcc4d;color:#221a00;box-shadow:0 0 3vh #ffcc4d88;animation:blink 1.4s infinite}
+
+/* 팀 게임 보드 */
+.tboard{display:flex;flex-direction:column;gap:1.4vh;width:min(1500px,92vw);margin:0 auto}
+.trow{display:grid;grid-template-columns:6vw 14vw 1fr 14vw;align-items:center;gap:1.2vw;font-size:3vh}
+.tr-rk{font-size:4.4vh;text-align:center}.tr-nm{font-weight:900;color:var(--c);display:flex;gap:.6vw;align-items:center}.tr-nm span{font-size:4vh}
+.tr-bar{position:relative;height:6vh;background:#ffffff10;border-radius:1.4vh;overflow:hidden}
+.tr-bar i{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,transparent,var(--c));border-radius:1.4vh;transition:width .8s cubic-bezier(.2,.8,.2,1)}
+.tr-bar em{position:absolute;left:1.2vw;top:50%;transform:translateY(-50%);font-style:normal;font-size:2vh;color:#e9ebff;font-weight:700;white-space:nowrap}
+.tr-v{font-weight:900;font-size:3.6vh;white-space:nowrap}.tr-v small{display:block;font-size:2vh;color:var(--gold)}
+.trow.win .tr-bar{box-shadow:0 0 3vh var(--c)}
+.cho-grid{display:flex;flex-wrap:wrap;gap:1.4vh 1.4vw;justify-content:center}
+.cho-grid span{font-size:6vh;font-weight:900;letter-spacing:.4vw;padding:1.4vh 2vw;border-radius:2vh;background:#ffffff12;border:1px solid #ffffff26;color:var(--gold)}
+
+.pc-sm .pc-amt{white-space:nowrap}
+
+/* 세션 소개 */
+.sec-sub{font-size:4.4vh;font-weight:800;text-align:center;margin:-.6vh 0 1.6vh;color:#fff;word-break:keep-all}
+.sec-desc{font-size:2.5vh;color:#c9cdf2;text-align:center;line-height:1.6;max-width:76vw;margin:0 auto 2.6vh;word-break:keep-all}
+.sec-grid{display:grid;grid-template-columns:1.1fr 1fr;gap:2.6vw;width:min(1600px,92vw);margin:0 auto;align-items:start}
+.sec-grid.one{grid-template-columns:1fr;width:min(1100px,80vw)}
+.sec-chips{display:flex;flex-wrap:wrap;gap:1vh .8vw;margin-bottom:1.6vh}
+.sec-chips span{font-size:2.3vh;font-weight:800;padding:.8vh 1.2vw;border-radius:99px;background:#ffffff14;border:1px solid #ffffff26}
+.sec-rules{margin:0;padding-left:0;list-style:none;font-size:2.1vh;line-height:1.55;color:#e1e4ff}
+.sec-rules li{padding:.5vh 0;border-top:1px solid #ffffff12;word-break:keep-all}
+.sec-prizes{display:grid;grid-template-columns:1fr 1fr;gap:1.2vh 1vw}
+.sec-pl{font-size:1.8vh;color:#ffe08a;font-weight:800;margin-bottom:.4vh}
+.sec-prizes .prize-card{width:100%}

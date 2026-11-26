@@ -50,19 +50,21 @@
     // 퀴즈 시간이 끝나면 자동 마감
     const i = curIdx(); const a = acts()[i]; const st = stOf(i);
     if (a && a.type === 'quiz' && st.phase === 'open' && st.openedAt && B.now() > st.openedAt + a.duration * 1000 + 1500) B.set(`state/${i}/phase`, 'closed');
-    if (a && a.type === 'race' && st.phase === 'open' && st.openedAt && B.now() > Core.raceWindow(a, st).end + 2000) B.set(`state/${i}/phase`, 'closed');
+    if (Core.isTeamGame(a) && st.phase === 'open' && st.openedAt && B.now() > Core.gameWindow(a, st).end + 2000) B.set(`state/${i}/phase`, 'closed');
+    if (a && a.type === 'rank' && !st.snap && !snapBusy[i]) { snapBusy[i] = 1; B.set(`state/${i}/snap`, Core.rankSnapshot(D, a, i)).then(() => { snapBusy[i] = 0; }); }
+    if (a && a.type === 'bingo') { const wv = Core.bingoWinners(D, i, a).map(w => w.pid); if (JSON.stringify(wv) !== JSON.stringify(vals(st.bwin))) B.set(`state/${i}/bwin`, wv.length ? wv : null); }
     const cd = document.getElementById('cd');
     if (cd) cd.textContent = Math.max(0, Math.ceil((+cd.dataset.deadline - B.now()) / 1000)) + '초';
   }
 
-  let lastRun = '', lastTop = '', lastPeople = '';
+  let lastRun = '', lastTop = '', lastPeople = ''; const snapBusy = {};
   function render(force) {
     if (!D) return;
     document.getElementById('hTitle').textContent = '🎛️ ' + ((D.content && D.content.title) || '진행자');
     const topKey = JSON.stringify([meta().status, meta().sound, Object.keys(online()).length, Object.keys(players()).length]);
     if (force || topKey !== lastTop) { lastTop = topKey; renderTop(); }
-    if (tab === 'run') { const k = JSON.stringify([meta(), D.content, D.state, D.answers, D.points, D.bingo, D.taps, D.players, Object.keys(online()).length, lot]); if (force || k !== lastRun) { lastRun = k; renderRun(); } }
-    if (tab === 'people') { const k = JSON.stringify([D.players, D.online, D.points]); if (force || k !== lastPeople) { lastPeople = k; renderPeople(); } }
+    if (tab === 'run') { const k = JSON.stringify([meta(), D.content, D.state, D.answers, D.points, D.tpoints, D.bingo, D.taps, D.players, Object.keys(online()).length, lot]); if (force || k !== lastRun) { lastRun = k; renderRun(); } }
+    if (tab === 'people') { const k = JSON.stringify([D.players, D.online, D.points, D.tpoints, D.state]); if (force || k !== lastPeople) { lastPeople = k; renderPeople(); } }
   }
 
   function renderTop() {
@@ -101,7 +103,8 @@
     const el = document.getElementById('tab-run');
     el.innerHTML = `<div class="h-grid"><div class="card" style="padding:10px"><div class="row" style="margin-bottom:8px">
         <button id="prev">◀ 이전</button><button id="next" class="primary">다음 ▶</button></div>
-      <ul class="alist">${list.map((a, i) => `<li data-i="${i}" class="${i === ci ? 'cur' : ''}"><span class="no">${i + 1}</span><span class="ty">${Core.TYPE_NAMES[a.type]}</span><span class="ti">${esc(a.title)}</span><span class="ph">${PH[stOf(i).phase] || ''}</span></li>`).join('')}</ul>
+      <ul class="alist">${list.map((a, i) => a.type === 'section' ? `<li data-i="${i}" class="sec ${i === ci ? 'cur' : ''}"><span class="no">📌</span><span class="ti"><b>${esc(a.title)}</b>${a.sub ? ` <span class="muted small">${esc(a.sub)}</span>` : ''}</span></li>`
+        : `<li data-i="${i}" class="${i === ci ? 'cur' : ''}"><span class="no">${i + 1}</span><span class="ty">${Core.typeName(a)}</span><span class="ti">${esc(a.title)}</span><span class="ph">${PH[stOf(i).phase] || ''}</span></li>`).join('')}</ul>
       <button class="ghost small" id="toIdle" style="width:100%;margin-top:8px">☕ 화면 비우기 (안내 화면)</button></div>
       <div class="card" id="panel">${list[ci] ? '' : '<p class="muted">왼쪽에서 진행할 순서를 클릭하세요. 클릭하면 참가자·대형 화면이 그 순서로 바뀝니다.</p>'}</div></div>`;
     el.querySelectorAll('.alist li').forEach(li => li.onclick = () => B.set('meta/current', +li.dataset.i));
@@ -127,7 +130,7 @@
       if (a.type === 'poll') btns = btn('open', '🗳️ 투표 열기', 'primary', ph === 'open') + btn('close', '⏹ 투표 마감', '', ph !== 'open');
       else btns = btn('start', `▶ 문제 시작 (${a.duration}초)`, 'primary', ph !== 'ready') + btn('close', '⏹ 즉시 마감', '', ph !== 'open') + btn('reveal', '✅ 정답 공개 · 채점', 'primary', ph === 'ready' || ph === 'reveal');
       if (a.type === 'quiz' && ph === 'reveal') {
-        const top = Core.ranking(players(), D.points).slice(0, 5);
+        const top = Core.quizRanking(D, i).slice(0, 5);
         body += `<p class="muted small">누적 TOP 5: ${top.map((r, k) => `${k + 1}. ${esc(r.name)}(${r.score})`).join(' · ')}</p>`;
       }
     }
@@ -158,29 +161,54 @@
         ${w.length ? `<p>당첨: ${w.map(pid => `<b style="color:var(--gold)">${esc((players()[pid] || {}).name || '?')}</b> <span class="muted small">${esc((players()[pid] || {}).team || '')}</span>`).join(', ')}</p>` : ''}`;
       btns = btn('draw', w.length ? '🔁 다시 추첨' : '🎰 추첨!', 'primary', !pool.length);
     }
-    if (a.type === 'race') {
-      const r = Core.raceResult(D, i, a); const teams = vals(D.content.teams);
-      const w = Core.raceWindow(a, st);
-      body = `<p class="muted">${ph === 'open' ? (B.now() < w.start ? '카운트다운 중...' : '🔥 레이스 진행 중!') : ph === 'ready' ? '시작을 누르면 3초 카운트다운 후 ' + a.duration + '초간 진행됩니다.' : ''} 참여 ${r.indiv.length}명</p>
-        ${r.teams.length ? `<table><tr><th>순위</th><th>팀</th><th>참여</th><th>1인당 평균</th><th>보너스</th></tr>${r.teams.map((t, k) => `<tr><td>${k + 1}</td><td><span style="color:${Core.teamColor(teams, t.team)}">●</span> ${esc(t.team)}</td><td>${t.n}</td><td><b>${t.avg}</b></td><td>${vals(Core.SCORING.teamRace)[k] ? '+' + vals(Core.SCORING.teamRace)[k] : '-'}</td></tr>`).join('')}</table>` : ''}
-        <p class="muted small">개인 TOP: ${r.indiv.slice(0, 5).map(x => `${esc(x.name)}(${x.taps})`).join(' · ') || '-'}</p>`;
-      btns = btn('start', `▶ 레이스 시작 (${a.duration}초)`, 'primary', ph !== 'ready') + btn('reveal', '🏆 결과 발표 · 보너스 지급', 'primary', ph !== 'closed');
+    if (Core.isTeamGame(a)) {
+      const g = Core.teamGame(D, i, a); const teams = vals(D.content.teams); const w = Core.gameWindow(a, st); const now = B.now();
+      const pts = vals(Core.SCORING.team);
+      const status = ph === 'open' ? (now < w.start ? '카운트다운 중...' : now < w.end ? `🔥 진행 중 · 남은 시간 <b id="cd" data-deadline="${w.end}"></b>` : '⏰ 시간 종료 — 결과 발표를 누르세요') : ph === 'ready' ? '시작을 누르면 모든 참가자 폰에서 게임이 시작됩니다.' : ph === 'closed' ? '마감됨 — 결과 발표를 누르세요' : '결과 발표 완료';
+      body = `<p class="muted">${status}</p><p class="muted small">⚖️ 공정 비교: 참여 인원이 가장 적은 팀 기준 <b>${g.K}명</b>씩 각 팀에서 무작위로 뽑아 평균을 냅니다.</p>
+        <table><tr><th>순위</th><th>팀</th><th>참여/반영</th><th>성적</th><th>팀전 점수</th></tr>${g.rows.map(r => `<tr><td>${r.n ? r.rank : '-'}</td><td><span style="color:${Core.teamColor(teams, r.team)}">●</span> ${esc(r.team)}</td><td>${r.n}/${r.k}</td><td><b>${esc(r.label)}</b> <span class="muted small">${esc(r.sub)}</span></td><td>${r.n && pts[r.rank - 1] ? '+' + pts[r.rank - 1] : '-'}</td></tr>`).join('')}</table>
+        ${g.indiv.length ? `<p class="muted small">개인 TOP: ${g.indiv.slice(0, 5).map(x => `${esc(x.name)}(${a.type === 'timing' ? (x.ms / 1000).toFixed(2) + '초' : x.v})`).join(' · ')}</p>` : ''}
+        ${a.type === 'teamquiz' ? `<p class="muted small">정답: ${esc(vals(a.options)[a.answer])}</p>` : ''}`;
+      btns = btn('start', `▶ 시작 (${a.window ? a.window + '초 동안 도전' : a.duration + '초'})`, 'primary', ph !== 'ready') + btn('close', '⏹ 즉시 마감', '', ph !== 'open') + btn('reveal', '🏆 결과 발표 · 팀전 점수 지급', 'primary', ph === 'ready' || ph === 'reveal');
     }
     if (a.type === 'rank') {
-      const top = Core.ranking(players(), D.points).slice(0, 10);
-      const teams = Core.teamRanking(players(), D.points, vals(D.content.teams));
-      body = `<p class="muted">대형 화면에 개인 TOP 10과 팀 순위가 표시됩니다.</p><table><tr><th>#</th><th>이름</th><th>팀</th><th>점수</th></tr>${top.map((r, k) => `<tr><td>${k + 1}</td><td>${esc(r.name)}</td><td>${esc(r.team)}</td><td>${r.score}</td></tr>`).join('')}</table>
-        ${teams.length ? `<p class="muted small">팀(평균): ${teams.map(t => `${esc(t.team)} ${t.avg}점(${t.n}명)`).join(' · ')}</p>` : ''}`;
+      const snap = st.snap;
+      if (a.scope === 'team') {
+        const rows = vals(snap && snap.team);
+        body = `<p class="muted">이 순서를 열 때의 팀전 점수로 순위가 고정됩니다. 팀 게임을 더 했다면 <b>다시 집계</b>를 누르세요.</p>
+          <table><tr><th>순위</th><th>팀</th><th>팀전 점수</th><th>1등/2등 횟수</th><th>포상</th></tr>${rows.map(r => { const pz = Core.prizeFor(a, r.rank); return `<tr><td>${r.rank}</td><td>${esc(r.team)}</td><td>${r.pts}</td><td>${vals(r.medals)[0] || 0} / ${vals(r.medals)[1] || 0}${r.tieBroken ? ' <span class="muted small">(동점 규칙)</span>' : ''}</td><td>${pz ? esc(pz.name) : '-'}</td></tr>`; }).join('')}</table>
+          <p class="muted small">⚖️ 동점이면 팀 게임 1등 횟수 → 2등 횟수 → … → 마지막 팀 게임 순위로 정합니다.</p>`;
+      } else {
+        const rows = vals(snap && snap.indiv);
+        body = `<p class="muted">이 순서를 열 때의 점수로 순위가 고정됩니다. 퀴즈를 더 했다면 <b>다시 집계</b>를 누르세요.</p>
+          <table><tr><th>순위</th><th>이름</th><th>팀</th><th>점수</th><th>정답</th><th>정답 시간 합</th><th>포상</th></tr>${rows.map(r => { const pz = Core.prizeFor(a, r.rank); return `<tr><td>${r.rank}</td><td>${esc(r.name)}</td><td>${esc(r.team)}</td><td>${r.score}</td><td>${r.correct ?? '-'}</td><td>${r.time != null ? (r.time / 1000).toFixed(2) + '초' : '-'}${r.tieBroken ? ' <span class="muted small">(동점 규칙)</span>' : ''}</td><td>${pz ? esc(pz.name) : '-'}</td></tr>`; }).join('')}</table>
+          <p class="muted small">⚖️ 이 세션의 퀴즈 점수만 집계합니다. 동점이면 맞힌 문제 수 → 정답까지 걸린 시간 합이 짧은 사람이 위.</p>`;
+      }
+      btns = btn('resnap', '🔄 다시 집계', 'ghost');
     }
+    if (a.type === 'section') {
+      const info = Core.sectionInfo(D.content, i);
+      body = `<p class="muted">대형 화면과 참가자 폰에 세션 소개 페이지가 표시됩니다. 소개를 마친 뒤 <b>다음 ▶</b>으로 넘어가세요.</p>
+        ${vals(a.desc).map(d => `<p>${esc(d)}</p>`).join('')}
+        <p class="muted small">이번 세션 순서: ${info.list.map(x => esc(x.a.title)).join(' → ') || '-'}</p>
+        ${info.prizes.length ? `<p class="muted small">상품: ${info.prizes.map(p => `${esc(p.label)} ${esc(p.prize.name)}`).join(' · ')}</p>` : ''}`;
+    }
+    if (a.type === 'bingo' && vals(a.prizes).length) body += `<p class="muted small">포상: ${vals(a.prizes).map(p => `${p.from}${p.to !== p.from ? '~' + p.to : ''}등 ${esc(p.name)}`).join(' · ')} — ${Core.maxPrizeRank(a)}명이 완성되면 대형 화면이 자동으로 시상 화면으로 바뀝니다.</p>`;
     p.innerHTML = head + `<div class="btns">${btns}${a.type !== 'rank' ? btn('reset', '🧹 이 순서 초기화', 'ghost') : ''}</div>` + body;
     const on = (id, fn) => { const b = p.querySelector('#' + id); if (b) b.onclick = fn; };
     on('open', () => B.set(`state/${i}/phase`, 'open'));
     on('close', () => B.set(`state/${i}/phase`, 'closed'));
-    on('start', () => B.set(`state/${i}`, { phase: 'open', openedAt: TS }));
-    on('reveal', () => a.type === 'race' ? B.update('', { [`points/${i}`]: Core.racePoints(D, i, a), [`state/${i}/phase`]: 'reveal' }) : reveal(i, a));
+    on('start', () => {
+      const o = { phase: 'open', openedAt: TS };
+      // 팀 퀴즈: 시작 순간 팀별 접속 인원을 기록해 정답률의 분모로 사용 (미접속 팀원 영향 제거)
+      if (a.type === 'teamquiz') { const ro = {}; Object.keys(online()).forEach(pid => { const t = (players()[pid] || {}).team; if (t) (ro[t] = ro[t] || []).push(pid); }); o.roster = ro; }
+      B.set(`state/${i}`, o);
+    });
+    on('reveal', () => Core.isTeamGame(a) ? revealTeam(i, a) : reveal(i, a));
+    on('resnap', () => B.set(`state/${i}/snap`, Core.rankSnapshot(D, a, i)));
     on('draw', () => a.type === 'bingo' ? drawWord(i, a) : drawLottery(i));
     on('undo', () => { const c = vals(st.called); if (confirm(`"${c[c.length - 1]}" 뽑기를 취소할까요?`)) B.remove(`state/${i}/called/${c.length - 1}`); });
-    on('reset', () => { if (confirm('이 순서의 응답·점수·결과를 모두 지울까요?')) B.update('', { [`state/${i}`]: null, [`answers/${i}`]: null, [`points/${i}`]: null, [`bingo/${i}`]: null, [`taps/${i}`]: null }); });
+    on('reset', () => { if (confirm('이 순서의 응답·점수·결과를 모두 지울까요?')) B.update('', { [`state/${i}`]: null, [`answers/${i}`]: null, [`points/${i}`]: null, [`bingo/${i}`]: null, [`taps/${i}`]: null, [`tpoints/${i}`]: null }); });
     const lc = p.querySelector('#lc'); if (lc) { lc.onchange = () => { lot.count = Math.max(1, +lc.value || 1); render(); }; p.querySelector('#lo').onchange = e => { lot.onlineOnly = e.target.checked; render(); }; p.querySelector('#lx').onchange = e => { lot.exclude = e.target.checked; render(); }; }
   }
 
@@ -188,6 +216,11 @@
     const st = stOf(i); const pts = {};
     Object.entries(ansOf(i)).forEach(([pid, ans]) => { const s = Core.quizPoints(ans, a, st); if (s > 0) pts[pid] = s; });
     B.update('', { [`points/${i}`]: Object.keys(pts).length ? pts : null, [`state/${i}/phase`]: 'reveal' });
+  }
+  function revealTeam(i, a) {
+    const g = Core.teamGame(D, i, a); const pts = Core.teamGamePoints(D, i, a);
+    const result = g.rows.map(r => ({ team: r.team, rank: r.rank, label: r.label, sub: r.sub, pts: pts[r.team] || 0, pick: r.pick == null ? null : r.pick }));
+    B.update('', { [`tpoints/${i}`]: Object.keys(pts).length ? pts : null, [`state/${i}/result`]: result, [`state/${i}/phase`]: 'reveal' });
   }
   function drawWord(i, a) {
     const called = vals(stOf(i).called); const left = vals(a.words).filter(w => !called.includes(w));
@@ -213,18 +246,34 @@
   // ---------- 콘텐츠 탭 ----------
   function buildEditor() {
     const el = document.getElementById('tab-edit');
-    el.innerHTML = `<div class="h-grid"><div class="card"><div class="q-title">작성법</div><div class="small muted" style="line-height:1.8">
-      <code>제목: 행사 이름</code><br><code>팀: 1팀, 2팀, 3팀</code> (없으면 팀 선택 생략)<br><br>
-      <code>[투표] 질문</code> + 줄마다 <code>- 보기</code><br>
+    el.innerHTML = `<div class="h-grid"><div class="card"><div class="q-title">작성법</div><div class="small muted guide" style="line-height:1.75">
+      <b>기본</b><br><code>제목: 행사 이름</code> · <code>팀: 1팀, 2팀, 3팀, 4팀</code><br><code># 메모</code> (무시되는 줄)<br><br>
+      <b>📌 세션 (구간 나누기 + 소개 페이지)</b><br>
+      <code>[세션] 2. 개인전 퀴즈</code><br><code>부제: '26년 퀴즈왕은?</code><br>그 아래 줄들은 소개 문장으로 표시돼요.<br>
+      세션 소개 화면에 이번 순서·진행 방식·상품이 자동으로 붙고, <b>순위는 같은 세션 안의 점수만</b> 집계합니다.<br><br>
+      <b>개인 순서</b><br>
+      <code>[워드클라우드] 질문</code><br>
+      <code>[투표] 질문</code> + <code>- 보기</code><br>
       <code>[퀴즈 20초] 질문</code> + <code>- 오답</code> / <code>* 정답</code><br>
       <code>[OX 10초] 문장 / O</code><br>
-      <code>[워드클라우드] 질문</code><br>
-      <code>[빙고 5x5 3줄] 제목</code> + 다음 줄에 단어들을 쉼표로 (25개 이상)<br>
-      <code>[추첨 3명] 경품 이름</code><br>
-      <code>[순위] 제목</code> — 누적 점수 순위 화면<br>
-      <code>[탭레이스 10초] 제목</code> — 팀 대항 연타 경주 (팀 1인당 평균)<br>
-      <code># </code>로 시작하는 줄은 메모(무시)<br><br>
-      ⚠️ 행사 중에 순서를 끼워 넣거나 지우면 이미 받은 응답이 다른 순서에 붙을 수 있어요. 행사 시작 후에는 오타 수정 정도만 하세요.</div>
+      <code>[빙고 5x5 3줄] 제목</code> + 단어들을 쉼표로 (25개 이상)<br>
+      <code>[추첨 3명] 제목</code> + <code>경품: 스타벅스 3만원</code><br>
+      <code>[순위 퀴즈] 제목</code> — 퀴즈 점수 개인 순위 + 포상<br><br>
+      <b>팀 게임</b> (결과 발표 시 1등 100 · 2등 70 · 3등 50 · 4등 30점)<br>
+      모든 팀 게임은 <b>1인당 평균·비율</b>로 승부해 팀 인원 차이와 무관합니다.<br>
+      <code>[탭레이스 10초] 제목</code> — 연타 경주 (1인당 평균)<br>
+      <code>[팀퀴즈 20초] 질문</code> + 보기·정답 — 시작 때 접속한 팀원 중 정답 비율<br>
+      <code>[반응속도 3회] 제목</code> — 초록불에 터치! 3회 평균 반응속도<br>
+      <code>[이심전심 15초] 질문</code> + <code>- 보기</code> — 팀원끼리 같은 답 고르기 (예비)<br>
+      <code>[초성퀴즈 60초] 제목</code> + <code>ㅎㅂㅁ = HBM / 에이치비엠</code> 줄마다 1문제<br>
+      <code>[타이밍 10초] 제목</code> — 정확히 10초에 멈추기 (평균 오차)<br>
+      <code>[팀순위] 제목</code> — 팀전 누적 점수 순위 + 포상 (동점이면 1등 횟수 → 2등 횟수 → 마지막 게임 순위)<br><br>
+      <b>🎁 포상 쓰는 법</b> (순위·빙고·팀순위 아래에)<br>
+      <code>1등: 신세계상품권 10만원</code><br><code>2등: 신세계상품권 5만원</code><br><code>3~5등: 배달의민족 3만원</code><br><code>6~10등: 스타벅스 1만원</code><br>
+      추첨은 <code>경품: 쿠팡이츠 5만원</code> 한 줄<br>
+      상품명에 <b>스타벅스·커피</b> → 커피 카드, <b>배달의민족·쿠팡이츠</b> → 배달 카드, <b>상품권</b> → 상품권 카드, <b>지원·회식</b> → 지원금 카드로 자동 표시돼요.
+      실제 상품 사진을 쓰려면 저장소에 이미지를 올리고 <code>1등: 상품명 | prize/사진.png</code><br><br>
+      ⚠️ 행사 시작 후 순서를 끼워 넣거나 지우면 이미 받은 응답이 다른 순서에 붙을 수 있어요. 시작 후에는 오타 수정 정도만 하세요.</div>
       <div id="pv" style="margin-top:14px"></div></div>
       <div class="card"><textarea class="editor" id="ed" spellcheck="false"></textarea>
       <div class="btns"><button id="chk">검사</button><button class="primary" id="save">저장 (모든 화면에 반영)</button><button class="ghost" id="def">기본 예시 불러오기</button></div><div id="msg"></div></div></div>`;
@@ -248,16 +297,26 @@
 
   // ---------- 참가자 탭 ----------
   function renderPeople() {
-    const rank = Core.ranking(players(), D.points);
-    const teams = Core.teamRanking(players(), D.points, vals(D.content && D.content.teams));
+    const rank = Core.quizRanking(D);
+    const teamsS = Core.teamStandings(D); const size = {}; Object.values(players()).forEach(p => { size[p.team] = (size[p.team] || 0) + 1; });
+    const prizes = Core.prizeList(D);
     const el = document.getElementById('tab-people');
-    el.innerHTML = `<div class="h-grid"><div class="card"><div class="q-title">팀 현황</div><table><tr><th>팀</th><th>인원</th><th>평균</th></tr>${teams.map(t => `<tr><td>${esc(t.team)}</td><td>${t.n}</td><td>${t.avg}</td></tr>`).join('')}</table>
+    el.innerHTML = `<div class="card"><div class="q-title">🎁 포상 지급 명단 (${prizes.length}건)</div>
+      <p class="muted small">순위·빙고·추첨 결과에서 자동으로 모읍니다. 표를 복사해 엑셀에 붙여넣을 수 있어요.</p>
+      <table><tr><th>순서</th><th>순위</th><th>이름</th><th>팀</th><th>포상</th></tr>${prizes.map(p => `<tr><td>${esc(p.act)}</td><td>${esc(p.rank)}</td><td>${esc(p.name)}</td><td>${esc(p.team)}</td><td><b>${esc(p.prize)}</b></td></tr>`).join('') || '<tr><td colspan="5" class="muted">아직 없음</td></tr>'}</table>
+      <div class="btns"><button id="cpz" class="primary">📋 명단 복사 (엑셀용)</button><span id="cpzMsg" class="ok"></span></div></div>
+      <div class="h-grid"><div class="card"><div class="q-title">팀 현황</div><table><tr><th>순위</th><th>팀</th><th>인원</th><th>팀전 점수</th><th>1등/2등</th></tr>${teamsS.map(t => `<tr><td>${t.rank}</td><td>${esc(t.team)}</td><td>${size[t.team] || 0}</td><td>${t.pts}</td><td>${vals(t.medals)[0] || 0} / ${vals(t.medals)[1] || 0}</td></tr>`).join('')}</table>
       <div class="btns" style="margin-top:20px"><button class="danger" id="wipe">⚠️ 전체 초기화 (리허설 후)</button></div><p class="muted small">참가자·응답·점수·결과를 모두 지우고 대기 상태로 돌립니다. 콘텐츠는 유지됩니다.</p></div>
       <div class="card"><div class="q-title">참가자 ${rank.length}명</div><table><tr><th>#</th><th>이름</th><th>팀</th><th>점수</th><th>접속</th><th></th></tr>
       ${rank.map((r, k) => `<tr><td>${k + 1}</td><td>${esc(r.name)}</td><td>${esc(r.team)}</td><td>${r.score}</td><td>${online()[r.pid] ? '🟢' : '⚪'}</td><td><button class="ghost small" data-del="${esc(r.pid)}" style="padding:4px 8px">삭제</button></td></tr>`).join('')}</table></div></div>`;
+    el.querySelector('#cpz').onclick = async () => {
+      const tsv = ['순서\t순위\t이름\t팀\t포상', ...prizes.map(p => [p.act, p.rank, p.name, p.team, p.prize].join('\t'))].join('\n');
+      try { await navigator.clipboard.writeText(tsv); el.querySelector('#cpzMsg').textContent = '복사했어요 ✓'; }
+      catch (e) { const t = document.createElement('textarea'); t.value = tsv; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove(); el.querySelector('#cpzMsg').textContent = '복사했어요 ✓'; }
+    };
     el.querySelector('#wipe').onclick = () => {
       if (!confirm('정말 전체 초기화할까요? 되돌릴 수 없습니다.')) return;
-      B.update('', { players: null, online: null, answers: null, points: null, bingo: null, taps: null, state: null, 'meta/current': -1, 'meta/status': 'waiting' });
+      B.update('', { players: null, online: null, answers: null, points: null, tpoints: null, bingo: null, taps: null, state: null, 'meta/current': -1, 'meta/status': 'waiting' });
     };
     el.querySelectorAll('[data-del]').forEach(b => b.onclick = () => {
       const id = b.dataset.del; if (!confirm(`${players()[id].name} 님을 삭제할까요?`)) return;

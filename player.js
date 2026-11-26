@@ -36,7 +36,7 @@
   }
   const cur = () => (S.meta && S.meta.current != null ? S.meta.current : -1);
   const acts = () => vals(S.content && S.content.activities);
-  const myTotal = () => Core.totals(S.points)[pid] || 0;
+  const myTotal = () => Core.sectionScore(S.content, S.points, pid, cur());
 
   function view(key, html, after) {
     if (key === lastKey) return;
@@ -58,9 +58,9 @@
 
     const idx = cur(); const act = acts()[idx];
     if (!act) return view('idle', `<div class="card hero"><div class="emoji">⏳</div><h1>잠시만 기다려 주세요</h1><p class="muted">곧 다음 순서가 시작됩니다.</p></div>`);
-    if (pid && S.ready.ans === 0 && !['rank', 'lottery', 'bingo', 'race'].includes(act.type)) return;
+    if (pid && S.ready.ans === 0 && !['rank', 'lottery', 'bingo', 'race', 'section'].includes(act.type)) return;
     const st = S.state[idx] || {};
-    const fn = { poll: vPoll, quiz: vQuiz, wordcloud: vCloud, bingo: vBingo, lottery: vLottery, rank: vRank, race: vRace }[act.type];
+    const fn = { section: vSection, poll: vPoll, quiz: vQuiz, wordcloud: vCloud, bingo: vBingo, lottery: vLottery, rank: vRank, race: vRace, teamquiz: vTeamQuiz, mind: vMind, chosung: vChosung, timing: vTiming, reaction: vReaction }[act.type];
     if (fn) fn(idx, act, st);
   }
   function tick() {
@@ -102,6 +102,16 @@
     };
     go.onclick = submit;
     document.getElementById('jName').addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+  }
+
+  // ---------- 세션 소개 ----------
+  function vSection(idx, act) {
+    const info = Core.sectionInfo(S.content, idx);
+    view('sec' + idx, `<div class="card hero" style="padding:28px 20px"><div class="tag">SESSION ${info.no}${info.total ? ' / ' + info.total : ''}</div>
+      <h1 style="font-size:28px;color:var(--gold)">${esc(act.title)}</h1>${act.sub ? `<div class="q-title" style="font-size:18px;margin:4px 0 10px">${esc(act.sub)}</div>` : ''}
+      ${vals(act.desc).map(d => `<p class="muted" style="margin:4px 0">${esc(d)}</p>`).join('')}</div>
+      ${info.rules.length ? `<div class="card"><div class="tag">이렇게 진행해요</div><ul style="margin:0;padding-left:18px;line-height:1.7;font-size:14px">${info.rules.map(r => `<li>${esc(r)}</li>`).join('')}</ul></div>` : ''}
+      ${info.prizes.length ? `<div class="card"><div class="tag">🎁 이번 세션 상품</div><ul class="lb">${info.prizes.map(p => `<li><span class="n">${esc(p.label)}</span><span class="s" style="color:var(--gold)">${esc(p.prize.name)}</span></li>`).join('')}</ul></div>` : ''}`);
   }
 
   // ---------- 투표 ----------
@@ -174,9 +184,10 @@
     const lines = Core.bingoLines(board, act.size, calledSet);
     const done = lines >= act.lines;
     if (ph !== 'ready') reportBingo(idx, lines);
-    const key = JSON.stringify(['bingo', idx, ph, called.length, lines]);
-    view(key, `<div class="card"><div class="tag">빙고 · ${act.lines}줄 완성 목표</div><div class="q-title">${esc(act.title)}</div>
-      ${done ? `<div class="win-banner">🎉 빙고 ${lines}줄 완성! 기록이 접수되었어요</div>` : ''}
+    const myRank = vals(st.bwin).indexOf(pid) + 1; const prize = myRank ? Core.prizeFor(act, myRank) : null;
+    const key = JSON.stringify(['bingo', idx, ph, called.length, lines, myRank]);
+    view(key, `${prize ? congrats(`빙고 ${myRank}등!`, prize) : ''}<div class="card"><div class="tag">빙고 · ${act.lines}줄 완성 목표</div><div class="q-title">${esc(act.title)}</div>
+      ${done ? `<div class="win-banner">🎉 빙고 ${lines}줄 완성!${myRank ? ` ${myRank}등으로 기록되었어요` : ' 기록이 접수되었어요'}</div>` : ''}
       ${ph === 'ready' ? '<p class="muted">빙고판을 미리 확인하세요! 진행자가 단어를 뽑으면 자동으로 칠해집니다.</p>' : `<p>방금 뽑힌 단어: <b style="color:var(--gold);font-size:20px">${last ? esc(last) : '—'}</b> <span class="muted small">(${called.length}개 진행)</span></p>`}
       <div class="board" style="grid-template-columns:repeat(${act.size},1fr)">${board.map(w => `<div class="cell ${calledSet.has(w) ? 'on' : ''} ${w === last ? 'last' : ''}">${esc(w)}</div>`).join('')}</div>
       <p class="center"><b>${lines}</b> / ${act.lines}줄</p></div>`);
@@ -197,7 +208,8 @@
     const key = JSON.stringify(['lot', idx, ph, st.at, revealed, win]);
     if (ph !== 'spin') return view(key, waitCard('추첨', act.title, '행운의 주인공은 누구일까요? 🍀'));
     if (!revealed) return view(key, `<div class="card hero"><div class="emoji pulse">🎰</div><h1>추첨 중...</h1><p class="muted">두근두근! 큰 화면을 봐 주세요</p></div>`);
-    view(key, win ? `<div class="card hero"><div class="emoji">🎁</div><h1 class="result-good">축하합니다! 당첨되셨어요!</h1><p class="muted">${esc(act.title)}<br>진행자 안내에 따라 수령해 주세요.</p></div>`
+    const k = vals(st.winners).indexOf(pid) + 1;
+    view(key, win ? congrats(esc(act.title) + ' 당첨!', Core.prizeFor(act, k) || { name: act.title })
       : `<div class="card hero"><div class="emoji">🍀</div><h1>아쉽지만 다음 기회에!</h1><p class="muted">${esc(act.title)}</p></div>`);
   }
 
@@ -211,7 +223,7 @@
     if (race.idx !== idx || (ph === 'ready')) { if (race.idx !== idx || race.count) { race.idx = idx; race.count = 0; race.sent = 0; } }
     const w = Core.raceWindow(act, st); const now = B.now();
     const stage = ph === 'open' ? (now < w.start ? 'count' : now < w.end ? 'go' : 'end') : ph;
-    const key = JSON.stringify(['race', idx, stage, stage === 'count' ? Math.ceil((w.start - now) / 1000) : 0, ph === 'reveal' ? (S.points[idx] || {})[pid] || 0 : 0]);
+    const key = JSON.stringify(['race', idx, stage, stage === 'count' ? Math.ceil((w.start - now) / 1000) : 0, st.result ? 1 : 0]);
     const head = `<div class="tag">탭 레이스 · ${act.duration}초</div><div class="q-title">${esc(act.title)}</div>`;
     if (stage === 'ready') return view(key, `<div class="card hero">${head}<div class="emoji">${Core.teamEmoji(teams, myTeam)}</div>
       <p>${myTeam ? `<b style="color:${color}">${esc(myTeam)}</b>의 대표 선수!` : '개인전!'}</p>
@@ -236,8 +248,7 @@
       });
     }
     flushRace(idx); if (race.timer) { clearInterval(race.timer); race.timer = null; }
-    if (stage === 'reveal') { const p = (S.points[idx] || {})[pid] || 0;
-      return view(key, `<div class="card hero">${head}<div class="emoji">${p ? '🏆' : '👏'}</div><h1>${p ? `팀 보너스 +${p}점!` : '수고하셨습니다!'}</h1><p class="muted">나의 기록 <b style="color:var(--text)">${race.count || '-'}회</b> · 결과는 큰 화면에서!</p></div>`); }
+    if (stage === 'reveal') return view(key, teamResult(act, st, `나의 기록 <b style="color:var(--text)">${race.count || '-'}회</b>`));
     view(key, `<div class="card hero">${head}<div class="emoji">⏱️</div><h1>종료!</h1><p class="muted">나의 기록 <b style="color:var(--text)">${race.count}회</b><br>결과 발표를 기다려 주세요</p></div>`);
   }
   function flushRace(idx) {
@@ -245,16 +256,170 @@
     race.sent = race.count; B.set(`taps/${idx}/${pid}`, race.count);
   }
 
-  // ---------- 순위 ----------
-  function vRank(idx, act) {
-    const t = Core.totals(S.points);
-    const all = Object.entries(t).sort((a, b) => b[1] - a[1]);
-    const myScore = t[pid] || 0;
-    const rank = myScore ? 1 + all.filter(([, s]) => s > myScore).length : null;
-    const key = JSON.stringify(['rank', idx, myScore, rank]);
-    view(key, `<div class="card hero"><div class="tag">${esc(act.title)}</div><div class="emoji">🏆</div>
-      <p class="muted">나의 점수</p><div class="big-num">${myScore.toLocaleString()}점</div>
-      <p>${rank ? `현재 <b style="color:var(--gold)">${rank}위</b>` : '아직 점수가 없어요'}</p><p class="muted small">전체 순위는 큰 화면에서 확인하세요</p></div>`);
+  // ---------- 순위 (개인 / 팀) ----------
+  function vRank(idx, act, st) {
+    const snap = st.snap;
+    if (!snap) return view('rank-wait' + idx, waitCard(Core.typeName(act), act.title, '결과를 집계하고 있어요...'));
+    if (act.scope === 'team') {
+      const rows = vals(snap.team); const me = rows.find(r => r.team === S.me.team);
+      const prize = me ? Core.prizeFor(act, me.rank) : null;
+      return view(JSON.stringify(['trank', idx, snap.at]), (prize ? congrats(`우리 팀 ${me.rank}등!`, prize, `${esc(S.me.team)} 팀원 모두 축하합니다!`) : '') +
+        `<div class="card"><div class="tag">${esc(act.title)}</div><ol class="lb">${rows.map(r => `<li class="${r.team === S.me.team ? 'me' : ''}"><span class="r">${r.rank}</span><span class="n">${Core.teamEmoji(S.content.teams, r.team)} ${esc(r.team)}</span><span class="s">${r.pts}점</span></li>`).join('')}</ol></div>`);
+    }
+    const rows = vals(snap.indiv); const me = rows.find(r => r.pid === pid);
+    const prize = me ? Core.prizeFor(act, me.rank) : null;
+    const all = { score: myTotal() };
+    view(JSON.stringify(['rank', idx, snap.at]), prize ? congrats(`${me.rank}등!`, prize, `${me.score.toLocaleString()}점`)
+      : `<div class="card hero"><div class="tag">${esc(act.title)}</div><div class="emoji">🏆</div>
+      <p class="muted">나의 점수</p><div class="big-num">${(me ? me.score : all.score).toLocaleString()}점</div>
+      <p>${me ? `<b style="color:var(--gold)">${me.rank}위</b>` : '아쉽지만 순위권 밖이에요'}</p><p class="muted small">전체 순위는 큰 화면에서 확인하세요</p></div>`);
+  }
+  function congrats(title, prize, sub) {
+    return `<div class="card congrats"><div class="burst">🎉</div><h1 class="result-good">축하합니다! ${title}</h1>${sub ? `<p class="muted">${sub}</p>` : ''}
+      ${Prize.card(prize, 'lg')}<p class="muted small">진행자 안내에 따라 수령해 주세요</p></div>`;
+  }
+  // 팀 게임 결과 (진행자가 결과 발표 시 저장한 st.result 사용)
+  function teamResult(act, st, mine) {
+    const rows = vals(st.result); const me = rows.find(r => r.team === S.me.team);
+    return `<div class="card hero"><div class="tag">${esc(Core.typeName(act))} 결과</div>
+      <div class="emoji">${me ? ['🥇', '🥈', '🥉'][me.rank - 1] || '👏' : '👏'}</div>
+      <h1>${me ? `우리 팀 ${me.rank}위!` : '수고하셨습니다!'}</h1>${me && me.pts ? `<div class="big-num">+${me.pts}점</div><p class="muted small">팀전 점수</p>` : ''}
+      ${mine ? `<p class="muted">${mine}</p>` : ''}
+      <ol class="lb" style="text-align:left;margin-top:12px">${rows.map(r => `<li class="${r.team === S.me.team ? 'me' : ''}"><span class="r">${r.rank}</span><span class="n">${esc(r.team)}</span><span class="s">${esc(r.label)}</span></li>`).join('')}</ol></div>`;
+  }
+
+  // ---------- 팀 퀴즈 / 이심전심 (보기 선택형 팀 게임) ----------
+  function choiceGame(idx, act, st, kind) {
+    const ph = st.phase || 'ready'; const my = S.myAns ? S.myAns.v : null; const opts = vals(act.options);
+    const w = Core.gameWindow(act, st); const timeUp = ph === 'open' && B.now() > w.end;
+    const name = Core.typeName(act); const team = S.me.team;
+    const key = JSON.stringify([kind, idx, ph, my, timeUp, st.result ? 1 : 0]);
+    const rule = kind === 'mind' ? '정답은 없어요! <b>팀원들과 같은 답</b>을 골라야 해요. 팀원끼리 답이 많이 겹칠수록 이깁니다.' : '시작 때 접속한 팀원 중 <b>정답을 맞힌 비율</b>로 승부해요. 모두 답해야 유리합니다!';
+    if (ph === 'ready') return view(key, `<div class="card hero"><div class="tag">팀 게임 · ${name}</div><div class="emoji">${Core.teamEmoji(S.content.teams, team)}</div><p><b style="color:${Core.teamColor(S.content.teams, team)}">${esc(team)}</b> 준비!</p><p class="muted">${rule}</p></div>`);
+    if (ph === 'reveal') {
+      const mine = kind === 'teamquiz' ? (my == null ? '응답하지 않았어요' : my === act.answer ? `내 답: 정답 ⭕ (${esc(opts[act.answer])})` : `내 답: 오답 ❌ · 정답은 ${esc(opts[act.answer])}`)
+        : (my == null ? '응답하지 않았어요' : `내 선택: ${esc(opts[my])}`);
+      return view(key, teamResult(act, st, mine));
+    }
+    const locked = my != null || ph !== 'open' || timeUp;
+    view(key, `<div class="card"><div class="tag">팀 게임 · ${name} · ${act.duration}초</div>
+      ${ph === 'open' && !timeUp ? `<div class="timer"><i data-deadline="${w.end}" data-total="${act.duration * 1000}" style="width:100%"></i></div>` : ''}
+      <div class="q-title">${esc(act.title)}</div>
+      <div class="opts">${opts.map((o, i) => `<button class="opt ${my === i ? 'sel' : ''}" data-i="${i}" ${locked ? 'disabled' : ''}><span class="k" style="background:var(--o${i % 6})">${OPT_KEYS[i]}</span>${esc(o)}</button>`).join('')}</div>
+      <p class="muted small center" style="margin-top:14px">${my != null ? '제출 완료! 결과 발표를 기다려 주세요.' : (ph !== 'open' || timeUp) ? '⏱️ 시간 종료' : rule}</p></div>`,
+      () => main.querySelectorAll('.opt').forEach(b => b.onclick = () => {
+        if (B.now() > w.end || S.myAns) return;
+        main.querySelectorAll('.opt').forEach(x => x.disabled = true); b.classList.add('sel');
+        B.set(`answers/${idx}/${pid}`, { v: +b.dataset.i, at: TS });
+      }));
+  }
+  const vTeamQuiz = (idx, act, st) => choiceGame(idx, act, st, 'teamquiz');
+  const vMind = (idx, act, st) => choiceGame(idx, act, st, 'mind');
+
+  // ---------- 초성 퀴즈 ----------
+  const cho = { idx: null, passed: [] };
+  function vChosung(idx, act, st) {
+    const ph = st.phase || 'ready'; const items = vals(act.items);
+    if (cho.idx !== idx) { cho.idx = idx; cho.passed = []; }
+    const solved = vals(S.myAns && S.myAns.c);
+    const w = Core.gameWindow(act, st); const timeUp = ph === 'open' && B.now() > w.end;
+    const left = items.map((_, i) => i).filter(i => !solved.includes(i));
+    let curI = left.find(i => !cho.passed.includes(i)); if (curI == null && left.length) { cho.passed = []; curI = left[0]; }
+    const key = JSON.stringify(['cho', idx, ph, timeUp, solved.length, curI, st.result ? 1 : 0]);
+    if (ph === 'ready') return view(key, `<div class="card hero"><div class="tag">팀 게임 · 초성 퀴즈 · ${act.duration}초</div><div class="emoji">🔤</div><div class="q-title">${esc(act.title)}</div>
+      <p class="muted">초성을 보고 단어를 입력하세요. 모르면 <b>패스</b>!<br>팀원 1인당 평균 정답 수로 승부합니다. (총 ${items.length}문제)</p></div>`);
+    if (ph === 'reveal') return view(key, teamResult(act, st, `나의 정답 <b style="color:var(--text)">${solved.length}개</b> / ${items.length}개`));
+    if (ph !== 'open' || timeUp || curI == null) return view(key, `<div class="card hero"><div class="emoji">${curI == null ? '🎉' : '⏱️'}</div><h1>${curI == null ? '전부 맞혔어요!' : '시간 종료!'}</h1><p class="muted">나의 정답 <b style="color:var(--text)">${solved.length}개</b> / ${items.length}개<br>결과 발표를 기다려 주세요</p></div>`);
+    const it = items[curI];
+    view(key, `<div class="card center"><div class="tag">초성 퀴즈 · ${solved.length}/${items.length} 정답</div>
+      <div class="timer"><i data-deadline="${w.end}" data-total="${act.duration * 1000}" style="width:100%"></i></div>
+      <div class="cho-q" id="choQ">${esc(it.q)}</div>
+      <div class="row"><input id="choIn" placeholder="정답 입력" autocomplete="off" autocapitalize="off"><button class="primary" id="choGo" style="flex:none">확인</button></div>
+      <div class="row" style="margin-top:10px"><button class="ghost" id="choPass">패스 ▶</button></div><div id="choMsg" class="small" style="margin-top:8px;min-height:20px"></div></div>`,
+      () => {
+        const inp = document.getElementById('choIn'); inp.focus();
+        const check = () => {
+          if (B.now() > w.end) return;
+          if (Core.chosungOk(it, inp.value)) { B.set(`answers/${idx}/${pid}`, { c: [...solved, curI], at: TS }); }
+          else { const m = document.getElementById('choMsg'); m.innerHTML = '<span class="result-bad">땡! 다시 생각해 보세요</span>'; inp.select(); document.getElementById('choQ').classList.remove('shake'); void inp.offsetWidth; document.getElementById('choQ').classList.add('shake'); }
+        };
+        document.getElementById('choGo').onclick = check;
+        inp.addEventListener('keydown', e => { if (e.key === 'Enter') check(); });
+        document.getElementById('choPass').onclick = () => { cho.passed.push(curI); lastKey = ''; render(); };
+      });
+  }
+
+  // ---------- 번개 반응 (반응속도) ----------
+  const rx = { idx: null, times: [], goAt: 0, t: null, state: 'idle' };
+  function vReaction(idx, act, st) {
+    const ph = st.phase || 'ready'; const mine = S.myAns && S.myAns.ms != null ? S.myAns : null;
+    if (rx.idx !== idx) { rx.idx = idx; rx.times = []; rx.state = 'idle'; clearTimeout(rx.t); }
+    const w = Core.gameWindow(act, st); const timeUp = ph === 'open' && B.now() > w.end && !rx.times.length;
+    const N = act.rounds || 3;
+    const key = JSON.stringify(['rx', idx, ph, !!mine, timeUp, st.result ? 1 : 0]);
+    const myLine = mine ? `나의 평균 <b style="color:var(--text)">${mine.ms}ms</b>` : '도전하지 않았어요';
+    if (ph === 'ready') return view(key, `<div class="card hero"><div class="tag">팀 게임 · 번개 반응</div><div class="emoji">⚡</div><div class="q-title">${esc(act.title)}</div>
+      <p class="muted">화면이 <b style="color:#ff5a6e">빨간색</b>일 때 기다리다가 <b style="color:#3ddc97">초록색</b>으로 바뀌는 순간 터치!<br>${N}번 해서 평균 반응속도를 재요. 미리 누르면 그 판은 다시 합니다.<br>팀원 평균이 빠른 팀이 이깁니다.</p></div>`);
+    if (ph === 'reveal') return view(key, teamResult(act, st, myLine));
+    if (mine) return view(key, `<div class="card hero"><div class="emoji">⚡</div><h1 class="big-num" style="font-size:52px">${mine.ms}ms</h1><p class="muted">${vals(mine.r).map(x => x + 'ms').join(' · ')}<br>결과 발표를 기다려 주세요</p></div>`);
+    if (ph !== 'open' || timeUp) return view(key, `<div class="card hero"><div class="emoji">⏱️</div><h1>도전 시간 종료</h1><p class="muted">${myLine}</p></div>`);
+    view(key, `<div class="card center" style="padding:14px"><div class="tag">번개 반응 · 도전 가능 <span data-deadline="${w.end}" data-total="1"></span></div>
+      <div id="rxPad" class="rx-pad"></div><p class="muted small" id="rxLog"></p></div>`, () => {
+      const pad = document.getElementById('rxPad'); const log = document.getElementById('rxLog');
+      const show = (cls, html) => { pad.className = 'rx-pad ' + cls; pad.innerHTML = html; log.textContent = rx.times.length ? '기록: ' + rx.times.map(x => x + 'ms').join(' · ') : ''; };
+      const idle = msg => { rx.state = 'idle'; show('idle', `<b>${msg || `${rx.times.length + 1} / ${N} 라운드`}</b><small>터치해서 준비</small>`); };
+      idle();
+      pad.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        if (rx.state === 'idle') {
+          if (B.now() > w.end) return;
+          rx.state = 'wait'; show('wait', '<b>기다리세요...</b><small>초록색이 되면 터치!</small>');
+          rx.t = setTimeout(() => { rx.state = 'go'; rx.goAt = performance.now(); show('go', '<b>지금!</b>'); }, 1500 + Math.random() * 3000);
+        } else if (rx.state === 'wait') {
+          clearTimeout(rx.t); rx.state = 'early'; show('early', '<b>너무 빨라요! 😅</b><small>이번 판은 다시</small>'); setTimeout(() => idle(), 1100);
+        } else if (rx.state === 'go') {
+          const ms = Math.round(performance.now() - rx.goAt);
+          if (ms < 100) { rx.state = 'early'; show('early', '<b>너무 빨라요! 😅</b>'); setTimeout(() => idle(), 1100); return; }
+          rx.times.push(Math.min(ms, 1000)); rx.state = 'done';
+          if (rx.times.length >= N) {
+            const avg = Math.round(rx.times.reduce((a, b) => a + b, 0) / rx.times.length);
+            S.myAns = { ms: avg, r: rx.times.slice() }; B.set(`answers/${idx}/${pid}`, { ms: avg, r: rx.times.slice(), at: TS }); lastKey = ''; render();
+          } else { show('done', `<b>${ms}ms</b><small>잠시 후 다음 라운드</small>`); setTimeout(() => idle(), 900); }
+        }
+      });
+    });
+  }
+
+  // ---------- N초 맞추기 ----------
+  const tm = { idx: null, start: 0, raf: 0 };
+  function vTiming(idx, act, st) {
+    const ph = st.phase || 'ready'; const mine = S.myAns && S.myAns.ms != null ? S.myAns.ms : null;
+    if (tm.idx !== idx) { tm.idx = idx; tm.start = 0; }
+    const w = Core.gameWindow(act, st); const timeUp = ph === 'open' && B.now() > w.end && !tm.start;
+    const T = act.target;
+    const key = JSON.stringify(['tm', idx, ph, mine, timeUp, !!tm.start, st.result ? 1 : 0]);
+    const resultLine = mine != null ? `나의 기록 <b style="color:var(--text)">${(mine / 1000).toFixed(2)}초</b> (오차 ${Math.abs(mine / 1000 - T).toFixed(2)}초)` : '도전하지 않았어요';
+    if (ph === 'ready') return view(key, `<div class="card hero"><div class="tag">팀 게임 · ${T}초 맞추기</div><div class="emoji">⏱️</div><div class="q-title">${esc(act.title)}</div>
+      <p class="muted"><b>시작</b>을 누르고 마음속으로 세다가 정확히 <b>${T}.00초</b>에 <b>멈춤</b>!<br>3초가 지나면 숫자가 사라져요. 기회는 한 번, 팀원 평균 오차가 작은 팀이 이깁니다.</p></div>`);
+    if (ph === 'reveal') return view(key, teamResult(act, st, resultLine));
+    if (mine != null) return view(key, `<div class="card hero"><div class="emoji">${Math.abs(mine / 1000 - T) < .1 ? '🎯' : '👏'}</div><h1 class="big-num" style="font-size:52px">${(mine / 1000).toFixed(2)}초</h1>
+      <p>목표 ${T}.00초 · 오차 <b style="color:var(--gold)">${Math.abs(mine / 1000 - T).toFixed(2)}초</b></p><p class="muted">결과 발표를 기다려 주세요</p></div>`);
+    if (ph !== 'open' || timeUp) return view(key, `<div class="card hero"><div class="emoji">⏱️</div><h1>도전 시간 종료</h1><p class="muted">${resultLine}</p></div>`);
+    if (!tm.start) return view(key, `<div class="card center"><div class="tag">${T}초 맞추기 · 도전 가능 <span data-deadline="${w.end}" data-total="1">${Math.ceil((w.end - B.now()) / 1000)}초</span></div>
+      <div class="q-title">정확히 ${T}.00초에 멈추세요!</div><button class="tap-btn" id="tmGo" style="--c:var(--green)"><span style="font-size:44px">시작</span><small>START</small></button></div>`,
+      () => { document.getElementById('tmGo').addEventListener('pointerdown', e => { e.preventDefault(); tm.start = performance.now(); lastKey = ''; render(); }); });
+    view(key, `<div class="card center"><div class="tag">${T}초 맞추기</div><div class="cho-q" id="tmN" style="font-variant-numeric:tabular-nums">0.00</div>
+      <button class="tap-btn" id="tmStop" style="--c:var(--red)"><span style="font-size:44px">멈춤!</span><small>STOP</small></button></div>`,
+      () => {
+        const n = document.getElementById('tmN');
+        const loop = () => { if (!tm.start || !document.getElementById('tmN')) return; const e = (performance.now() - tm.start) / 1000; n.textContent = e < 3 ? e.toFixed(2) : '? ? ?'; tm.raf = requestAnimationFrame(loop); };
+        loop();
+        document.getElementById('tmStop').addEventListener('pointerdown', ev => {
+          ev.preventDefault(); if (!tm.start) return;
+          const ms = Math.round(performance.now() - tm.start); tm.start = 0; cancelAnimationFrame(tm.raf);
+          S.myAns = { ms }; B.set(`answers/${idx}/${pid}`, { ms, at: TS }); lastKey = ''; render();
+        });
+      });
   }
 
   function waitCard(tag, title, msg) {

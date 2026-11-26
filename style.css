@@ -128,3 +128,31 @@ textarea.editor{min-height:60vh;font-family:ui-monospace,Menlo,Consolas,monospac
 .tap-btn small{font-size:22px;font-weight:800;letter-spacing:2px}
 .tap-btn.hit{animation:tap .12s ease}
 @keyframes tap{50%{transform:scale(.93) translateY(6px);box-shadow:0 4px 0 #0006,0 0 60px var(--c)}}
+
+/* 경품 카드 (참가자·대형 화면 공용) */
+.prize-card{position:relative;display:inline-flex;flex-direction:column;align-items:center;text-align:center;border-radius:18px;padding:14px 14px 12px;
+  background:radial-gradient(circle at 30% 20%,#ffffff40 0,transparent 45%),linear-gradient(150deg,var(--p1),var(--p2));color:#fff;box-shadow:0 10px 30px #0006,inset 0 0 0 2px #ffffff33;overflow:hidden}
+.prize-card::after{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 35%,#ffffff55 50%,transparent 65%);transform:translateX(-100%);animation:pcShine 3s ease-in-out infinite}
+@keyframes pcShine{60%,100%{transform:translateX(100%)}}
+.pc-art{width:96px;height:96px}.pc-art svg,.pc-art img{width:100%;height:100%;object-fit:contain}
+.pc-amt{margin-top:4px;font-size:22px;font-weight:900;text-shadow:0 2px 6px #0005}
+.pc-name{font-size:14px;font-weight:700;opacity:.95;word-break:keep-all;max-width:180px}
+.pc-lg{padding:3vh 2.2vw 2.4vh;border-radius:2.4vh}.pc-lg .pc-art{width:20vh;height:20vh}.pc-lg .pc-amt{font-size:5vh}.pc-lg .pc-name{font-size:2.6vh;max-width:30vw}
+.pc-sm{padding:1vh 1vw;border-radius:1.4vh;flex-direction:row;gap:.8vw}.pc-sm .pc-art{width:5.5vh;height:5.5vh}.pc-sm .pc-amt{font-size:2.4vh;margin:0}.pc-sm .pc-name{font-size:1.7vh;max-width:14vw;text-align:left}
+.congrats{text-align:center;padding:26px 18px}
+.congrats h1{font-size:26px;margin:6px 0 4px}
+.congrats .prize-card{margin:16px auto 10px}
+.congrats .burst{font-size:54px;animation:pop 1s ease infinite}
+.cho-q{font-size:56px;font-weight:900;letter-spacing:6px;margin:18px 0 20px;color:var(--gold)}
+.shake{animation:shake .35s}
+@keyframes shake{25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
+.rx-pad{height:56vh;max-height:440px;border-radius:22px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;margin:12px 0 8px;
+  touch-action:manipulation;user-select:none;-webkit-user-select:none;cursor:pointer;transition:background .05s}
+.rx-pad b{font-size:40px;font-weight:900}.rx-pad small{font-size:16px;opacity:.85}
+.rx-pad.idle{background:var(--bg2);border:2px dashed var(--line)}
+.rx-pad.wait{background:#c9243f;color:#fff}
+.rx-pad.go{background:#20c977;color:#08231a}.rx-pad.go b{font-size:64px}
+.rx-pad.early{background:#ff9f43;color:#2a1600}
+.rx-pad.done{background:#2b2a55}
+
+.alist li.sec{background:#ffcc4d14;border-color:#ffcc4d33;margin-top:8px}.alist li.sec.cur{border-color:var(--gold)}
