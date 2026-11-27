@@ -226,10 +226,21 @@ window.Core = (function () {
     return { start, end, idx: sec };
   }
   const inSection = (acts, idx, i) => { const r = sectionRange(acts, idx); return i >= r.start && i < r.end; };
+  // [게임] 묶음: 가장 가까운 [게임]/[세션] 머리부터 다음 머리 전까지. 묶음이 없으면 null
+  function blockRange(acts, idx) {
+    acts = vals(acts); if (idx == null || idx < 0) return null;
+    let start = -1; for (let i = Math.min(idx, acts.length - 1); i >= 0; i--) { const t = acts[i] && acts[i].type; if (t === 'game') { start = i; break; } if (t === 'section') break; }
+    if (start < 0) return null;
+    let end = acts.length; for (let i = Math.max(idx, start) + 1; i < acts.length; i++) { const t = acts[i] && acts[i].type; if (t === 'game' || t === 'section') { end = i; break; } }
+    return { start, end, idx: start };
+  }
+  const inScope = (acts, idx, i, scope) => { if (scope === 'block') { const b = blockRange(acts, idx); return b ? i >= b.start && i < b.end : inSection(acts, idx, i); } return inSection(acts, idx, i); };
+  // 이 퀴즈가 게임 묶음의 마지막 문제인지
+  function isLastQuizInBlock(acts, idx) { acts = vals(acts); const b = blockRange(acts, idx); if (!b) return false; for (let i = idx + 1; i < b.end; i++) if (acts[i].type === 'quiz') return false; return true; }
   // 개인 퀴즈 순위: ① 점수 → ② 맞힌 문제 수 → ③ 정답까지 걸린 시간 합계(빠를수록 위). 모두 같을 때만 공동 순위
-  function quizRanking(D, idx) {
+  function quizRanking(D, idx, scope) {
     const acts = vals(D.content && D.content.activities); const players = D.players || {};
-    const qs = acts.map((a, i) => a.type === 'quiz' && (idx == null || inSection(acts, idx, i)) ? i : -1).filter(i => i >= 0);
+    const qs = acts.map((a, i) => a.type === 'quiz' && (idx == null || inScope(acts, idx, i, scope)) ? i : -1).filter(i => i >= 0);
     const rows = Object.entries(players).map(([pid, p]) => {
       let score = 0, correct = 0, time = 0;
       qs.forEach(i => {
@@ -248,30 +259,47 @@ window.Core = (function () {
   // 세션 소개용 자동 정보: 이번 순서 목록, 규칙 안내, 상품 목록
   function sectionInfo(content, idx) {
     const acts = vals(content && content.activities); const r = sectionRange(acts, idx);
-    const list = acts.slice(r.start, r.end).map((a, k) => ({ a, i: r.start + k })).filter(x => x.a.type !== 'section');
+    const list = acts.slice(r.start, r.end).map((a, k) => ({ a, i: r.start + k })).filter(x => x.a.type !== 'section' && !x.a.hidden);
     const has = t => list.some(x => x.a.type === t);
     const tg = list.filter(x => isTeamGame(x.a)).length;
     const rules = [];
     if (has('wordcloud')) rules.push('☁️ 휴대폰으로 단어를 익명으로 보내면, 많이 나온 단어일수록 크게 보여요');
     if (has('poll')) rules.push('🗳️ 실시간 투표 — 결과가 바로 화면에 나타나요');
-    if (has('quiz')) rules.push(`🧠 정답 ${SCORING.correct}점 + 빨리 맞힐수록 최대 ${SCORING.speedBonus}점 · 이 세션의 퀴즈 점수로만 순위를 매겨요`, '⚖️ 동점이면 맞힌 문제 수 → 정답까지 걸린 시간이 짧은 사람이 위');
+    if (has('oddone')) rules.push('🧩 몸풀기 게임으로 시작! 휴대폰 화면에서 다른 글자 하나를 가장 빨리 찾아 터치하세요');
+    if (has('game')) rules.push(`🎮 게임 ${list.filter(x => x.a.type === 'game').length}종 · 문제마다 정답 ${SCORING.correct}점 + 빨리 맞힐수록 최대 ${SCORING.speedBonus}점`, '🎁 게임마다 1~10등에게 상품! (게임 시작 전에 공개)', '⚖️ 동점이면 맞힌 문제 수 → 정답까지 걸린 시간이 짧은 사람이 위 · 1/1000초까지 비교해 순위가 명확히 갈려요');
+    else if (has('quiz')) rules.push(`🧠 정답 ${SCORING.correct}점 + 빨리 맞힐수록 최대 ${SCORING.speedBonus}점 · 이 세션의 퀴즈 점수로만 순위를 매겨요`, '⚖️ 동점이면 맞힌 문제 수 → 정답까지 걸린 시간이 짧은 사람이 위');
     if (tg) rules.push(`👥 팀 게임 ${tg}종 · 팀원 평균으로 승부해 팀 인원 차이와 무관해요`, `🏅 게임마다 팀 순위별 ${vals(SCORING.team).filter(x => x).slice(0, (vals(content && content.teams).length || 4)).join('·')}점 · 동점이면 1등 횟수가 많은 팀이 위`);
     if (has('bingo')) rules.push('🎱 빙고판은 자동으로 만들어지고, 뽑힌 단어가 자동으로 칠해져요 · 먼저 완성한 순서로 시상');
+    if (has('thanks')) rules.push('💌 고마운 동료의 이름과 이유를 적어 주세요 · 한 사람이 같은 동료를 여러 번 적어도 1표 · 보낸 사람은 공개되지 않아요');
     if (has('lottery')) rules.push('🎰 접속 중인 사람 중 무작위 추첨 · 한 사람이 두 번 당첨되지 않아요');
     const prizes = [];
     list.forEach(({ a }) => {
-      if ((a.type === 'rank' || a.type === 'bingo') && vals(a.prizes).length) vals(a.prizes).forEach(p => prizes.push({ label: `${a.type === 'bingo' ? '빙고 ' : a.scope === 'team' ? '팀 ' : ''}${p.from}${p.to !== p.from ? '~' + p.to : ''}등`, prize: p }));
+      if (a.type === 'thanks' && vals(a.prizes).length) vals(a.prizes).forEach(p => prizes.push({ label: `감사 ${p.from}${p.to !== p.from ? '~' + p.to : ''}등`, prize: p }));
+      if ((a.type === 'rank' && a.scope !== 'block' || a.type === 'bingo') && vals(a.prizes).length) vals(a.prizes).forEach(p => prizes.push({ label: `${a.type === 'bingo' ? '빙고 ' : a.scope === 'team' ? '팀 ' : ''}${p.from}${p.to !== p.from ? '~' + p.to : ''}등`, prize: p }));
       if (a.type === 'lottery') { const p = vals(a.prizes)[0] || { name: a.title }; prizes.push({ label: `추첨 ${a.count}명`, prize: p }); }
     });
     const no = acts.slice(0, (r.idx < 0 ? 0 : r.idx) + 1).filter(a => a.type === 'section').length;
     const total = acts.filter(a => a.type === 'section').length;
-    return { list, rules, prizes, no, total };
+    // 이번 세션 칩: 게임 묶음이 있으면 게임 이름으로, 없으면 종류별 개수로
+    let chips;
+    if (has('game')) chips = list.filter(x => ['oddone', 'game'].includes(x.a.type) || (x.a.type === 'rank' && x.a.scope !== 'block')).map(x => ({ type: x.a.type, label: x.a.title }));
+    else { const c = {}; list.forEach(({ a }) => { const n = typeName(a); c[n] = c[n] || { type: a.type, label: n, n: 0 }; c[n].n++; }); chips = Object.values(c).map(x => ({ type: x.type, label: x.label + (x.n > 1 ? ` ×${x.n}` : '') })); }
+    return { list, rules, prizes, no, total, chips };
   }
-  function sectionScore(content, points, pid, idx) {
+  function sectionScore(content, points, pid, idx, scope) {
     const acts = vals(content && content.activities); let t = 0;
-    acts.forEach((a, i) => { if (a.type === 'quiz' && (idx == null || inSection(acts, idx, i))) t += ((points || {})[i] || {})[pid] || 0; });
+    acts.forEach((a, i) => { if (a.type === 'quiz' && (idx == null || inScope(acts, idx, i, scope))) t += ((points || {})[i] || {})[pid] || 0; });
     return t;
   }
+  // 몸풀기 '다른 글자 찾기': 찾은 순서(서버 시각) 순위
+  function oddRanking(D, idx) {
+    const players = D.players || {}; const st = (D.state || {})[idx] || {};
+    return Object.entries((D.answers || {})[idx] || {}).filter(([pid, a]) => a && a.ok && players[pid])
+      .map(([pid, a]) => ({ pid, name: players[pid].name, team: players[pid].team || '', at: a.at || 0, sec: Math.max(0, ((a.at || 0) - (st.openedAt || 0)) / 1000), miss: a.miss || 0 }))
+      .sort((x, y) => x.at - y.at || (x.pid < y.pid ? -1 : 1)).map((r, i) => ({ ...r, rank: i + 1 }));
+  }
+  // 다른 글자 찾기 판: 사람마다 위치가 다름 (씨앗 = 참가자 + 순서)
+  function oddBoard(seed, act) { const n = act.cols * act.rows; return Math.floor(rng(hash(seed + '#odd'))() * n); }
 
   // 팀전 누적 점수 (팀 게임 결과 발표 때 받은 점수 합계) — idx를 주면 그 세션의 팀 게임만
   // 동점 처리: ① 팀전 점수 → ② 팀 게임 1등 횟수 → ③ 2등 횟수 → … → ④ 마지막 팀 게임 순위
@@ -324,6 +352,43 @@ window.Core = (function () {
     return rows;
   }
 
+  // ---------- 감사 인사 ----------
+  // 이름 정규화: 띄어쓰기·호칭·(팀) 표기 제거 → 같은 사람으로 집계
+  const TITLES = /(님|씨|책임|선임|수석|매니저|팀장|파트장|그룹장|리더|프로|PL|TL)$/i;
+  function nameKey(s) { let n = String(s || '').replace(/\(.*?\)|·.*$/g, '').replace(/\s+/g, ''); for (let i = 0; i < 2; i++) n = n.replace(TITLES, ''); return n.toLowerCase(); }
+  // 집계: 받는 사람별 보낸 사람 수(1인 1표), 동점이면 그 득표에 먼저 도달한 사람이 위
+  function thanksAgg(D, idx) {
+    const players = D.players || {}; const ans = (D.answers || {})[idx] || {};
+    const byKey = {}; Object.values(players).forEach(p => { const k = nameKey(p.name); (byKey[k] = byKey[k] || []).push(p); });
+    const rec = {};
+    Object.entries(ans).forEach(([from, a]) => {
+      const seen = new Set();
+      vals(a && a.list).forEach(e => {
+        const k = nameKey(e.to); if (!k) return;
+        const r = rec[k] = rec[k] || { key: k, names: {}, senders: new Set(), msgs: [], times: [] };
+        r.names[e.to.trim()] = (r.names[e.to.trim()] || 0) + 1;
+        if (e.msg) r.msgs.push({ msg: e.msg, at: e.at || 0, from });
+        if (!seen.has(k) && !r.senders.has(from)) { r.senders.add(from); r.times.push(e.at || 0); }
+        seen.add(k);
+      });
+    });
+    const rows = Object.values(rec).map(r => {
+      const pl = byKey[r.key]; const one = pl && pl.length === 1 ? pl[0] : null;
+      const name = one ? one.name : Object.entries(r.names).sort((x, y) => y[1] - x[1])[0][0].replace(/\(.*?\)|·.*$/g, '').trim();
+      const times = r.times.sort((x, y) => x - y);
+      return { key: r.key, name, team: one ? (one.team || '') : '', count: r.senders.size, reachedAt: times[times.length - 1] || 0, msgs: r.msgs };
+    });
+    const cmp = (x, y) => y.count - x.count || x.reachedAt - y.reachedAt;
+    rows.sort(cmp); rows.forEach(r => { r.rank = 1 + rows.filter(o => cmp(o, r) < 0).length; });
+    return rows;
+  }
+  // 결과 스냅샷: 상위 N명 + 멘트 최대 4개(무작위, 고정)
+  function thanksResult(D, idx, act) {
+    const n = Math.max(3, maxPrizeRank(act));
+    return thanksAgg(D, idx).filter(r => r.rank <= n).map(r => ({ key: r.key, name: r.name, team: r.team, count: r.count, rank: r.rank,
+      msgs: shuffle(r.msgs.filter(m => m.msg).map(m => m.msg), rng(hash(r.key + ':' + idx))).slice(0, 4) }));
+  }
+
   // ---------- 포상 ----------
   function prizeFor(act, rank) { return vals(act && act.prizes).find(p => rank >= p.from && rank <= p.to) || null; }
   const maxPrizeRank = act => Math.max(0, ...vals(act && act.prizes).map(p => p.to));
@@ -331,7 +396,7 @@ window.Core = (function () {
   function rankSnapshot(D, act, idx) {
     if (act.scope === 'team') return { at: Date.now(), team: teamStandings(D, idx) };
     const n = Math.max(10, maxPrizeRank(act));
-    const rows = quizRanking(D, idx).filter(r => r.score > 0);
+    const rows = quizRanking(D, idx, act.scope === 'block' ? 'block' : 'section').filter(r => r.score > 0);
     const cut = rows.filter(r => r.rank <= n); // 동점자가 경계에 걸려도 같은 순위는 모두 포함
     return { at: Date.now(), indiv: cut };
   }
@@ -340,19 +405,21 @@ window.Core = (function () {
     const out = []; const acts = vals(D.content && D.content.activities); const players = D.players || {};
     acts.forEach((a, i) => {
       const st = (D.state || {})[i] || {};
-      if (a.type === 'rank' && st.snap && vals(a.prizes).length) {
+      if (a.type === 'rank' && st.snap && st.shown && vals(a.prizes).length) {
         if (a.scope === 'team') vals(st.snap.team).forEach(r => { const p = prizeFor(a, r.rank); if (p) out.push({ act: a.title, rank: r.rank, name: r.team + ' (팀)', team: r.team, prize: p.name }); });
         else vals(st.snap.indiv).forEach(r => { const p = prizeFor(a, r.rank); if (p) out.push({ act: a.title, rank: r.rank, name: r.name, team: r.team, prize: p.name }); });
       }
       if (a.type === 'bingo' && vals(a.prizes).length) bingoWinners(D, i, a).forEach((w, k) => { const p = prizeFor(a, k + 1); if (p) out.push({ act: a.title, rank: k + 1, name: w.name, team: w.team, prize: p.name }); });
+      if (a.type === 'oddone' && st.phase === 'prize' && vals(a.prizes).length) oddRanking(D, i).forEach(r => { const p = prizeFor(a, r.rank); if (p) out.push({ act: a.title, rank: r.rank, name: r.name, team: r.team, prize: p.name }); });
+      if (a.type === 'thanks' && st.res && vals(a.prizes).length) vals(st.res).forEach(r => { const p = prizeFor(a, r.rank); if (p) out.push({ act: a.title, rank: r.rank, name: r.name, team: r.team, prize: p.name }); });
       if (a.type === 'lottery' && st.phase === 'spin') vals(st.winners).forEach((pid, k) => { const p = prizeFor(a, k + 1); out.push({ act: a.title, rank: '당첨', name: (players[pid] || {}).name || '?', team: (players[pid] || {}).team || '', prize: p ? p.name : a.title }); });
     });
     return out;
   }
 
   // ---------- 콘텐츠 해석 ----------
-  const TYPE_NAMES = { section: '세션', poll: '투표', quiz: '퀴즈', wordcloud: '워드클라우드', bingo: '빙고', lottery: '추첨', rank: '순위', race: '탭 레이스', teamquiz: '팀 퀴즈', mind: '이심전심', chosung: '초성 퀴즈', timing: '10초 맞추기', reaction: '번개 반응' };
-  const typeName = a => a.type === 'rank' && a.scope === 'team' ? '팀 순위' : a.type === 'timing' ? `${a.target}초 맞추기` : TYPE_NAMES[a.type];
+  const TYPE_NAMES = { agenda: '목차', game: '게임', oddone: '다른 글자 찾기', section: '세션', thanks: '감사 인사', poll: '투표', quiz: '퀴즈', wordcloud: '워드클라우드', bingo: '빙고', lottery: '추첨', rank: '순위', race: '탭 레이스', teamquiz: '팀 퀴즈', mind: '이심전심', chosung: '초성 퀴즈', timing: '10초 맞추기', reaction: '번개 반응' };
+  const typeName = a => a.type === 'rank' && a.scope === 'block' ? '게임 결과' : a.type === 'rank' && a.scope === 'team' ? '팀 순위' : a.type === 'timing' ? `${a.target}초 맞추기` : TYPE_NAMES[a.type];
   const splitList = s => s.split(/[,，、\n]/).map(x => x.trim()).filter(Boolean);
   function parseContent(text) {
     const out = { title: '연말 행사', teams: [], activities: [] }; const errors = [];
@@ -376,6 +443,8 @@ window.Core = (function () {
       addBody(cur, line, ln, errors);
     });
     out.activities.forEach(a => finalize(a, errors, out));
+    // [게임결과]에 상품이 없으면 그 게임 머리([게임])의 상품을 그대로 사용
+    let head = null; out.activities.forEach(a => { if (a.type === 'game') head = a; else if (a.type === 'section') head = null; else if (a.type === 'rank' && a.scope === 'block' && !a.prizes.length && head) a.prizes = head.prizes.map(p => ({ ...p })); });
     out.activities.forEach(a => { delete a._ln; });
     return { content: out, errors };
   }
@@ -384,7 +453,12 @@ window.Core = (function () {
     const num = re => { const m = tag.match(re); return m ? parseInt(m[1], 10) : null; };
     const a = { _ln: ln, title: rest };
     if (/^(세션|섹션|파트)$/.test(kind)) { a.type = 'section'; a.desc = []; }
+    else if (/^(목차|오늘의순서|순서)$/.test(kind)) a.type = 'agenda';
+    else if (/^게임$/.test(kind)) a.type = 'game';
+    else if (/^게임결과$/.test(kind)) { a.type = 'rank'; a.scope = 'block'; }
+    else if (/^(다른글자찾기|글자찾기|몸풀기)$/.test(kind)) { a.type = 'oddone'; a.duration = num(/(\d+)\s*초/) || 30; a.cols = 6; a.rows = 8; a.base = '곰'; a.odd = '공'; }
     else if (/^투표$/.test(kind)) a.type = 'poll';
+    else if (/^(감사|감사인사|땡큐|칭찬)$/.test(kind)) { a.type = 'thanks'; a.max = num(/(\d+)\s*(개|명)/) || 3; }
     else if (/^퀴즈$/.test(kind)) a.type = 'quiz';
     else if (/^ox$/i.test(kind)) { a.type = 'quiz'; a.ox = true; }
     else if (/^(워드클라우드|단어)$/.test(kind)) a.type = 'wordcloud';
@@ -408,6 +482,7 @@ window.Core = (function () {
       if (m) { a.title = m[1].trim(); a.answer = /[Oo○]/.test(m[2]) ? 0 : 1; }
     }
     a.prizes = [];
+    if (/비공개|숨김/.test(tag)) a.hidden = true;
     return a;
   }
   function addBody(a, line, ln, errors) {
@@ -434,6 +509,7 @@ window.Core = (function () {
       return;
     }
     if (a.type === 'bingo') { a.words.push(...splitList(line)); return; }
+    if (a.type === 'oddone') { const m = line.match(/^(.+?)\s*[=＝]\s*(.+)$/); if (m) { a.base = m[1].trim().slice(0, 2); a.odd = m[2].trim().slice(0, 2); return; } }
     if (a.type === 'chosung') {
       const m = line.match(/^(.+?)\s*[=＝]\s*(.+)$/);
       if (m) { a.items.push({ q: m[1].trim(), a: m[2].split(/[\/／]/).map(x => x.trim()).filter(Boolean) }); return; }
@@ -467,5 +543,5 @@ window.Core = (function () {
 
   return { DEMO, EVENT, ROOT, TS, B, vals, esc, hash, rng, shuffle, newId, pageUrl, bingoBoard, bingoLines, bingoWinners, quizPoints, SCORING,
     TEAM_GAMES, isTeamGame, RACE_COUNTDOWN, gameWindow, raceWindow, teamGame, teamGamePoints, teamStandings, hasTeamPoints, chosungOk,
-    teamColor, teamEmoji, TEAM_COLORS, totals, ranking, prizeFor, maxPrizeRank, rankSnapshot, prizeList, sectionRange, inSection, quizRanking, sectionScore, sectionInfo, parseContent, TYPE_NAMES, typeName };
+    teamColor, teamEmoji, TEAM_COLORS, totals, ranking, prizeFor, maxPrizeRank, rankSnapshot, prizeList, sectionRange, inSection, blockRange, inScope, isLastQuizInBlock, oddRanking, oddBoard, quizRanking, sectionScore, sectionInfo, nameKey, thanksAgg, thanksResult, parseContent, TYPE_NAMES, typeName };
 })();

@@ -185,3 +185,44 @@ body.screen .demo-banner{opacity:.6}
 .sec-prizes{display:grid;grid-template-columns:1fr 1fr;gap:1.2vh 1vw}
 .sec-pl{font-size:1.8vh;color:#ffe08a;font-weight:800;margin-bottom:.4vh}
 .sec-prizes .prize-card{width:100%}
+
+/* 감사 인사 */
+.th-ticker{min-height:6vh;margin:1.6vh auto 0;max-width:80vw;text-align:center;font-size:2.8vh;color:#fff;padding:1.2vh 2vw;border-radius:99px;background:#ffffff10;border:1px solid #ffffff22}
+.th-ticker:empty{visibility:hidden}.th-ticker b{color:var(--gold)}
+.th-ticker.in{animation:enter .6s cubic-bezier(.2,.8,.2,1)}
+.th-podium{display:grid;grid-template-columns:1fr 1.15fr 1fr;gap:2vw;width:min(1700px,94vw);margin:0 auto;align-items:end}
+.th-card{padding:2.4vh 1.6vw;border-radius:2.4vh;background:linear-gradient(160deg,#ffffff18,#ffffff08);border:1px solid #ffffff2a;text-align:center;animation:winpop .9s cubic-bezier(.2,1.6,.4,1) backwards}
+.th-card.first{box-shadow:0 0 6vh #ffcc4d55;border-color:#ffcc4d88}
+.th-card .md{font-size:6vh}.th-card .nm{font-size:6vh;font-weight:900;line-height:1.2}.th-card.first .nm{font-size:7.4vh}
+.th-card .tm{font-size:2.2vh;color:#c9cdf2;margin-top:.4vh}
+.th-msgs{display:flex;flex-direction:column;gap:1vh;margin-top:1.4vh}
+.th-msgs div{font-size:2.1vh;line-height:1.45;padding:1vh 1vw;border-radius:1.4vh;background:#0b0f2e88;color:#eef0ff;word-break:keep-all;text-align:left}
+.one-team{position:fixed;inset:0;z-index:30;width:100vw;height:100vh}
+.one-team-txt{position:fixed;left:0;right:0;bottom:6vh;z-index:31;text-align:center;opacity:0;transform:translateY(3vh);transition:all 1.2s cubic-bezier(.2,.8,.2,1)}
+.one-team-txt .gold{font-size:6vh;font-weight:900;letter-spacing:.1em}
+.one-team-txt.show{opacity:1;transform:none}
+
+.th-cloud{max-height:46vh;overflow:hidden;align-content:center}
+
+/* 목차 */
+.agenda{display:grid;grid-template-columns:repeat(2,1fr);gap:2vh 2vw;width:min(1500px,88vw);margin:0 auto}
+.ag-item{display:flex;gap:1.6vw;align-items:center;padding:2.4vh 2vw;animation:enter .7s cubic-bezier(.2,.8,.2,1) backwards}
+.ag-no{flex:none;width:9vh;height:9vh;border-radius:2.4vh;display:grid;place-items:center;font-size:5vh;font-weight:900;color:#2a1600;background:linear-gradient(140deg,#ffcc4d,#ff8a3d)}
+.ag-t{font-size:3.6vh;font-weight:900}.ag-s{font-size:2.2vh;color:#c9cdf2;margin-top:.6vh;word-break:keep-all}
+/* 게임 상품 */
+.gm-prizes{display:flex;justify-content:center;align-items:flex-end;gap:3vw;margin-top:1vh}
+.gm-p{text-align:center;animation:winpop .9s cubic-bezier(.2,1.6,.4,1) backwards}
+.gm-r{font-size:3.6vh;font-weight:900;color:#ffe08a;margin-bottom:1vh}.gm-r small{font-size:2vh;color:#c9cdf2}
+/* 퀴즈 결과(마지막 문제) */
+.reveal-grid.solo{grid-template-columns:1fr;width:min(1300px,86vw)}
+.lb.lb10 li{padding:.6vh .4vw;font-size:2.3vh}
+/* 다른 글자 찾기 */
+.odd-grid{display:grid;gap:.8vh;width:min(70vh,60vw);margin:0 auto}
+.odd-grid span{aspect-ratio:1;display:grid;place-items:center;font-size:3.6vh;font-weight:800;border-radius:1vh;background:#ffffff10}
+.odd-grid span.hit{background:var(--gold);color:#221a00;transform:scale(1.25);box-shadow:0 0 4vh var(--gold);animation:pop 1s ease infinite}
+.odd-feed{display:flex;flex-direction:column;gap:1.2vh;width:min(900px,56vw)}
+.odd-feed div{display:flex;gap:1.6vw;align-items:center;font-size:3.4vh;padding:1.2vh 1.6vw;border-radius:1.6vh;background:#ffffff10;animation:enter .5s}
+.odd-feed b{color:var(--gold);width:5vh}.odd-feed span{flex:1;font-weight:800}.odd-feed em{font-style:normal;color:#9aa0d0}
+.odd-rank{display:grid;gap:.6vh 1.4vw;width:min(1700px,94vw);margin:0 auto}
+.odd-rank div{display:flex;gap:.8vw;align-items:center;font-size:2.1vh;padding:.5vh .8vw;border-radius:1vh;background:#ffffff0d;animation:enter .4s backwards}
+.odd-rank b{color:var(--gold);width:3.4vh}.odd-rank span{flex:1;font-weight:700}.odd-rank em{font-style:normal;color:#9aa0d0;font-size:1.8vh}

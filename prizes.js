@@ -1,5 +1,6 @@
 // 경품 카드 — 경품 이름의 키워드로 그림을 고릅니다 (실제 브랜드 로고는 쓰지 않고 직접 그린 일러스트)
 // 진짜 상품 이미지를 쓰고 싶으면 콘텐츠에 "1등: 상품명 | prize/파일.png" 처럼 이미지 경로를 붙이세요.
+// 이미지 파일이 아직 없으면 자동으로 일러스트가 대신 나옵니다.
 window.Prize = (function () {
   const ART = {
     coffee: `<svg viewBox="0 0 120 120"><ellipse cx="60" cy="104" rx="34" ry="6" fill="#0003"/>
@@ -44,7 +45,7 @@ window.Prize = (function () {
     if (!prize) return '';
     const k = kindOf(prize.name); const [c1, c2] = GRAD[k]; const amt = amountOf(prize.name);
     const img = prize.img && /^(https:\/\/|[\w\-./]+\.(png|jpe?g|webp|gif|svg)$)/i.test(prize.img) && !/^\.\./.test(prize.img) ? prize.img : '';
-    return `<div class="prize-card pc-${size}" style="--p1:${c1};--p2:${c2}"><div class="pc-art">${img ? `<img src="${esc(img)}" alt="">` : ART[k]}</div>
+    return `<div class="prize-card pc-${size}" style="--p1:${c1};--p2:${c2}"><div class="pc-art">${img ? `<img src="${esc(img)}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='block'"><span style="display:none;width:100%;height:100%">${ART[k]}</span>` : ART[k]}</div>
       ${amt ? `<div class="pc-amt">${esc(amt)}</div>` : ''}<div class="pc-name">${esc(prize.name)}</div></div>`;
   }
   return { card, kindOf };

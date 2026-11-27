@@ -67,8 +67,8 @@
     else if (status === 'waiting' || !act) { vWelcome(content, status); teamMode = 'members'; }
     else {
       const st = (D.state || {})[idx] || {}; const ans = (D.answers || {})[idx] || {};
-      ({ section: vSection, poll: vPoll, quiz: vQuiz, wordcloud: vCloud, bingo: vBingo, lottery: vLottery, rank: vRank, race: vRace, teamquiz: vTeamGame, mind: vTeamGame, chosung: vTeamGame, timing: vTeamGame, reaction: vTeamGame })[act.type](idx, act, st, ans, content);
-      if (Core.isTeamGame(act) || act.type === 'section' || (act.type === 'rank' && act.scope === 'team')) teamMode = 'hide';
+      ({ agenda: vAgenda, game: vGame, oddone: vOdd, section: vSection, thanks: vThanks, poll: vPoll, quiz: vQuiz, wordcloud: vCloud, bingo: vBingo, lottery: vLottery, rank: vRank, race: vRace, teamquiz: vTeamGame, mind: vTeamGame, chosung: vTeamGame, timing: vTeamGame, reaction: vTeamGame })[act.type](idx, act, st, ans, content);
+      if (Core.isTeamGame(act) || ['section', 'thanks', 'agenda', 'game', 'oddone'].includes(act.type) || (act.type === 'rank' && act.scope === 'team')) teamMode = 'hide';
     }
     renderTeams(teamMode, idx);
     if (snd) snd.duck(duckNow);
@@ -104,6 +104,8 @@
         }
       } else el.textContent = sec;
     });
+    const tk = document.getElementById('thTk');
+    if (tk && thRecent.length) { const e = thRecent[Math.floor(Date.now() / 4000) % thRecent.length]; const html = `💌 <b>${esc(e.to)}</b>님께 · “${esc(e.msg)}”`; if (tk.dataset.h !== html) { tk.dataset.h = html; tk.innerHTML = html; tk.classList.remove('in'); void tk.offsetWidth; tk.classList.add('in'); } }
     render();
   }
 
@@ -136,11 +138,203 @@
       () => { const el = document.getElementById('wN'); if (el && el.textContent !== String(n)) { if (el.textContent !== '0') pop('join'); el.textContent = n; el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); } });
   }
 
+  // ---------- 감사 인사 ----------
+  let thRecent = [];
+  function vThanks(idx, act, st, ans) {
+    const ph = st.phase || 'ready';
+    const lab = label('💌 ' + esc(act.title));
+    if (ph === 'ready') return view('th-r' + idx, '', () => `${lab}<div class="hero-title" style="font-size:20vh">💌</div><div class="headline">올 한 해 고마웠던 동료에게<br>마음을 전해 주세요</div><div class="sub">휴대폰에서 이름과 고마운 점을 적으면 이곳에 나타나요 · 보낸 사람은 공개되지 않아요</div>`);
+    if (ph === 'open' || ph === 'closed') {
+      const rows = Core.thanksAgg(D, idx).slice(0, 40); const max = rows.length ? rows[0].count : 1;
+      const shown = rows.slice().sort((a, b) => Core.hash(a.key) - Core.hash(b.key));
+      const recent = []; Object.values(ans || {}).forEach(a => vals(a && a.list).forEach(e => { if (e.msg) recent.push(e); })); recent.sort((a, b) => b.at - a.at);
+      const senders = Object.keys(ans || {}).length;
+      const seen = seenWords['th' + idx] = seenWords['th' + idx] || new Set();
+      return view('th-o' + idx, JSON.stringify([rows.map(r => [r.key, r.count]), ph, recent.length]), () => `${lab}<div class="headline" style="margin-bottom:2vh">${esc(act.title)}</div>
+        <div class="cloud th-cloud" id="thCl"></div><div class="th-ticker" id="thTk"></div><div class="sub" id="thS" style="margin-top:1.4vh"></div>`,
+        first => {
+          document.getElementById('thCl').innerHTML = shown.map(r => `<span class="${seen.has(r.key) ? '' : 'new'}" style="font-size:${(2.4 + 8.6 * Math.sqrt(r.count / max)).toFixed(1)}vh;color:${COLORS[Core.hash(r.key) % COLORS.length]}">${esc(r.name)}</span>`).join('') || '<span class="sub" style="animation:blink 1.4s infinite">첫 감사 인사를 기다리는 중...</span>';
+          if (!first && shown.some(r => !seen.has(r.key)) && seen.size) pop();
+          shown.forEach(r => seen.add(r.key));
+          const canon = {}; Core.thanksAgg(D, idx).forEach(r => { canon[r.key] = r.name; });
+          thRecent = recent.slice(0, 12).map(e => ({ to: canon[Core.nameKey(e.to)] || e.to, msg: e.msg }));
+          document.getElementById('thS').innerHTML = `<b style="color:#fff">${senders}</b>명이 <b style="color:#fff">${recent.length}</b>개의 감사를 전했어요${ph === 'closed' ? ' · 입력 마감' : ''}`;
+        });
+    }
+    if (ph === 'result' && st.res) {
+      const res = vals(st.res); const top = [res.find(r => r.rank === 2) || res[1], res.find(r => r.rank === 1) || res[0], res.find(r => r.rank === 3) || res[2]];
+      return view('th-v' + idx + JSON.stringify(res.map(r => r.key)), '', () => `${label('💌 ' + esc(act.title) + ' · 결과')}
+        <div class="th-podium">${top.map((r, k) => r ? `<div class="th-card ${r.rank === 1 ? 'first' : ''}" style="animation-delay:${[.6, 1.2, 0][k]}s">
+          <div class="md">${['🥇', '🥈', '🥉'][r.rank - 1] || r.rank + '위'}</div><div class="nm gold">${esc(r.name)}</div>
+          <div class="tm">${r.team ? esc(r.team) + ' · ' : ''}💌 ${r.count}명의 감사</div>
+          ${Core.prizeFor(act, r.rank) ? `<div style="margin:1vh 0">${Prize.card(Core.prizeFor(act, r.rank), 'sm')}</div>` : ''}
+          <div class="th-msgs">${vals(r.msgs).map(m => `<div>“${esc(m)}”</div>`).join('')}</div></div>` : '<div></div>').join('')}</div>`,
+        () => once('thv' + idx, () => { sfx('drumroll', 1.2); setTimeout(() => { sfx('fanfare'); sfx('cheer'); confetti(240); }, 1300); }));
+    }
+    if (ph === 'finale') {
+      return view('th-f' + idx + st.finaleAt, '', () => `<canvas id="oneTeam" class="one-team"></canvas><div class="one-team-txt" id="otTxt"><div class="gold">올 한 해 서로에게 고마웠습니다</div><div class="sub">함께라서 가능했던 2026 · We are One Team 💛</div></div>`,
+        () => {
+          const items = []; const names = [];
+          Core.thanksAgg(D, idx).forEach(r => { names.push(r.name); r.msgs.forEach(m => items.push({ name: r.name, msg: m.msg })); });
+          const go = () => oneTeam(Core.shuffle(items, Core.rng(Core.hash('ot' + idx))).slice(0, 160), names.length ? names : ['One Team']);
+          if (document.fonts && document.fonts.ready) document.fonts.ready.then(go); else go();
+        });
+    }
+    view('th-w' + idx, '', () => `${lab}<div class="headline">결과를 집계하고 있어요...</div>`);
+  }
+
+  // One Team 피날레: 이름과 멘트 카드가 가운데 나타났다가 작아지며 "One Team" 글자를 이룹니다
+  function oneTeam(items, names) {
+    const cv = document.getElementById('oneTeam'); if (!cv) return;
+    const W = cv.width = innerWidth, H = cv.height = innerHeight; const ctx = cv.getContext('2d');
+    const FONT = '"Pretendard","Apple SD Gothic Neo","Malgun Gothic",sans-serif';
+    const off = document.createElement('canvas'); off.width = W; off.height = H; const o = off.getContext('2d');
+    let fs = Math.min(H * .42, W * .22); o.font = `900 ${fs}px ${FONT}`;
+    const tw = o.measureText('One Team').width; if (tw > W * .92) { fs *= W * .92 / tw; o.font = `900 ${fs}px ${FONT}`; }
+    o.fillStyle = '#fff'; o.textAlign = 'center'; o.textBaseline = 'middle'; o.fillText('One Team', W / 2, H * .46);
+    const img = o.getImageData(0, 0, W, H).data;
+    let area = 0; for (let y = 0; y < H; y += 2) for (let x = 0; x < W; x += 2) if (img[(y * W + x) * 4 + 3] > 128) area += 4;
+    const g = Math.max(6, Math.sqrt(area / 560));
+    const pts = []; for (let y = g / 2; y < H; y += g) for (let x = g / 2; x < W; x += g) if (img[((y | 0) * W + (x | 0)) * 4 + 3] > 128) pts.push([x + (Math.random() - .5) * g * .4, y + (Math.random() - .5) * g * .4]);
+    const P = Core.shuffle(pts);
+    const N = Math.min(items.length, P.length);
+    // 화면을 4×3 = 12칸으로 나눠 이름+멘트 카드가 동시에 여러 장 떠오릅니다 (묶음마다 2.6초 머문 뒤 글자로 날아감)
+    // 최대 60장(5묶음)까지 카드로 보여 주고, 나머지는 이름만 빠르게 날아가 글자를 채웁니다
+    const COLS = 4, ROWS = 3, SLOTS = COLS * ROWS;
+    const HL = Math.min(N, 60), WAVE = 3.6, BURST = 3;
+    const waves = Math.ceil(HL / SLOTS);
+    const cascade = Math.max(0, waves - 1) * WAVE + 1.4 + (N > HL ? BURST : 0);
+    const HOLD = 2.6, FLY = 1.4, small = g * .9;
+    const slotPos = k => [W * ((k % COLS) + .5) / COLS + (Math.random() - .5) * W * .025, H * (.21 + .29 * Math.floor(k / COLS)) + (Math.random() - .5) * H * .025];
+    const slotOrder = Core.shuffle([...Array(SLOTS).keys()]);
+    const pal = ['#ffcc4d', '#ff8fb8', '#7ee0ff', '#3ddc97', '#b98cff', '#ffb36b', '#ffffff'];
+    const parts = P.map((pt, i) => {
+      const filler = i >= N; const it = filler ? { name: names[i % names.length] } : items[i];
+      const hl = !filler && i < HL;
+      const wave = Math.floor(i / SLOTS), slot = i % SLOTS;
+      return { it, filler, hl, to: pt, c: pal[Core.hash(it.name) % pal.length],
+        t0: filler ? (N ? cascade + FLY : 0) + Math.random() * 1.8 : hl ? wave * WAVE + slotOrder.indexOf(slot) * .11 : (waves - 1) * WAVE + 1.4 + ((i - HL) / Math.max(1, N - HL)) * BURST,
+        from: hl ? slotPos(slot) : [W / 2 + (Math.random() - .5) * W * .3, H / 2 + (Math.random() - .5) * H * .3] };
+    });
+    const tEnd = (N ? cascade + FLY : 0) + 1.8 + .9;
+    const ease = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    const wrap = (text, maxW, font) => {
+      ctx.font = font; const out = []; let line = '';
+      for (const ch of String(text)) { if (ctx.measureText(line + ch).width > maxW && line) { out.push(line); line = ch; if (out.length === 3) { out[2] = out[2].slice(0, -1) + '…'; line = ''; break; } } else line += ch; }
+      if (line) out.push(line); return out.slice(0, 3);
+    };
+    const start = performance.now(); let lastPop = 0, done = false;
+    function frame(now) {
+      if (!document.getElementById('oneTeam')) return;
+      const t = (now - start) / 1000; ctx.clearRect(0, 0, W, H);
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.shadowColor = 'rgba(255,204,77,.35)'; ctx.shadowBlur = done ? 12 : 0;
+      for (const p of parts) {
+        const lt = t - p.t0; if (lt < 0) continue;
+        if (p.filler) { ctx.globalAlpha = Math.min(1, lt / .6) * .95; ctx.fillStyle = p.c; ctx.font = `700 ${small}px ${FONT}`; ctx.fillText(p.it.name, p.to[0], p.to[1]); continue; }
+        if (lt >= (p.hl ? HOLD + FLY : FLY)) { ctx.globalAlpha = .95; ctx.fillStyle = p.c; ctx.font = `700 ${small}px ${FONT}`; ctx.fillText(p.it.name, p.to[0], p.to[1]); }
+      }
+      ctx.shadowBlur = 0;
+      for (const p of parts) {
+        if (p.filler) continue; const lt = t - p.t0; if (lt < 0 || lt >= (p.hl ? HOLD + FLY : FLY)) continue;
+        if (!p.hl) { // 빠른 이름: 가운데에서 바로 날아감
+          const k2 = ease(Math.min(1, lt / FLY)); const x2 = p.from[0] + (p.to[0] - p.from[0]) * k2, y2 = p.from[1] + (p.to[1] - p.from[1]) * k2;
+          if (lt >= FLY) continue;
+          ctx.globalAlpha = Math.min(1, lt / .2); ctx.fillStyle = p.c; ctx.font = `800 ${H * .03 + (small - H * .03) * k2}px ${FONT}`; ctx.fillText(p.it.name, x2, y2); continue;
+        }
+        const k = lt < HOLD ? 0 : ease((lt - HOLD) / FLY);
+        const x = p.from[0] + (p.to[0] - p.from[0]) * k, y = p.from[1] + (p.to[1] - p.from[1]) * k;
+        const appear = Math.min(1, lt / .35); const pop = lt < .35 ? .85 + .15 * ease(lt / .35) : 1; const shrink = (1 - k * .92) * pop;
+        const big = H * .042; const fsz = big + (small - big) * k;
+        const cardA = (1 - Math.min(1, k * 1.7)) * appear;
+        if (cardA > .02) {
+          const cw = W * .225 * shrink, ch = H * .25 * shrink;
+          ctx.globalAlpha = cardA * .92; ctx.fillStyle = '#1c1f4d'; ctx.strokeStyle = p.c; ctx.lineWidth = 3;
+          ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x - cw / 2, y - ch / 2, cw, ch, 24 * shrink); else ctx.rect(x - cw / 2, y - ch / 2, cw, ch); ctx.fill(); ctx.stroke();
+          const mf = `500 ${H * .022 * shrink}px ${FONT}`; const lines = wrap('“' + p.it.msg + '”', cw * .86, mf);
+          ctx.fillStyle = '#e6e8ff'; ctx.font = mf; lines.forEach((l, j) => ctx.fillText(l, x, y + ch * .02 + j * H * .03 * shrink));
+        }
+        ctx.globalAlpha = appear; ctx.fillStyle = p.c; ctx.font = `900 ${fsz}px ${FONT}`;
+        ctx.fillText(p.it.name, x, y - H * .07 * shrink * (cardA > .02 ? 1 : 0));
+        if (lt >= HOLD && t - lastPop > .4) { lastPop = t; sfx('pop'); }
+      }
+      ctx.globalAlpha = 1;
+      if (t > tEnd && !done) { done = true; const tx = document.getElementById('otTxt'); if (tx) tx.classList.add('show'); sfx('fanfare'); sfx('cheer'); confetti(260); setTimeout(() => confetti(200), 1200); }
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  // ---------- 오늘의 순서 (목차) ----------
+  function vAgenda(idx, act, st, ans, content) {
+    const secs = vals(content.activities).filter(a => a.type === 'section');
+    view('ag' + idx, JSON.stringify(secs.map(s => s.title)), () => `${label('📋 ' + esc(act.title || '오늘의 순서'))}
+      <div class="hero-title gold" style="font-size:7vh;margin-bottom:3vh">${esc(content.title || '')}</div>
+      <div class="agenda">${secs.map((s, k) => `<div class="ag-item glass" style="animation-delay:${.15 + k * .18}s"><div class="ag-no">${k + 1}</div><div><div class="ag-t">${esc(s.title.replace(/^[^\wㄱ-힣]*\d+\.\s*/, '').replace(/^\d+\.\s*/, ''))}</div>${s.sub ? `<div class="ag-s">${esc(s.sub)}</div>` : ''}</div></div>`).join('')}</div>`,
+      () => cue('ag' + idx, 'sparkle'));
+  }
+
+  // ---------- 게임 소개 + 상품 공개 ----------
+  function vGame(idx, act, st, ans, content) {
+    const acts = vals(content.activities); const b = Core.blockRange(acts, idx);
+    const qs = b ? acts.slice(b.start, b.end).filter(a => a.type === 'quiz') : [];
+    const no = acts.slice(0, idx + 1).filter(a => a.type === 'game').length;
+    const prizes = vals(act.prizes);
+    const shown = !!st.prize;
+    view('gm' + idx + shown, '', () => `${label(`🎮 GAME ${no}`)}<div class="hero-title gold" style="font-size:9vh">${esc(act.title)}</div>
+      ${act.desc ? `<div class="sec-desc">${esc(act.desc)}</div>` : ''}
+      ${shown ? `<div class="gm-prizes">${prizes.map((p, k) => `<div class="gm-p" style="animation-delay:${.2 + k * .35}s"><div class="gm-r">${p.from}${p.to !== p.from ? '~' + p.to : ''}등 <small>${p.to - p.from + 1}명</small></div>${Prize.card(p, k === 0 ? 'lg' : 'md')}</div>`).join('')}</div>`
+        : `<div class="glass panel" style="width:min(1100px,80vw);margin:0 auto"><ul class="sec-rules">
+          <li>📝 문제 ${qs.length}개 · 보기 중 정답을 휴대폰에서 터치</li>
+          <li>⚡ 정답 ${Core.SCORING.correct}점 + 빨리 맞힐수록 최대 ${Core.SCORING.speedBonus}점 보너스</li>
+          <li>📊 문제마다 중간 순위 TOP 10 공개 · 마지막 문제 후 최종 발표</li>
+          <li>⚖️ 동점이면 맞힌 문제 수 → 정답까지 걸린 시간(1/1000초) 순</li></ul>
+          ${prizes.length ? '<div class="sub" style="margin-top:2vh;font-size:3vh;animation:blink 1.6s infinite">🎁 1~10등 상품은 과연?</div>' : ''}</div>`}`,
+      () => { if (shown) once('gmp' + idx + st.prize, () => { sfx('drumroll', 1); setTimeout(() => { sfx('fanfare'); confetti(200); }, 1000); }); });
+  }
+
+  // ---------- 몸풀기: 다른 글자 찾기 ----------
+  function vOdd(idx, act, st, ans) {
+    const ph = st.phase || 'ready'; const N = Core.maxPrizeRank(act) || 50;
+    const rk = Core.oddRanking(D, idx); const deadline = (st.openedAt || 0) + act.duration * 1000; const running = ph === 'open' && B.now() < deadline;
+    const lab = label('🧩 몸풀기 게임');
+    const grid = (hl) => { const n = act.cols * act.rows; const pos = Core.oddBoard('screen' + idx, act);
+      return `<div class="odd-grid" style="grid-template-columns:repeat(${act.cols},1fr)">${Array.from({ length: n }, (_, i) => `<span class="${i === pos && hl ? 'hit' : ''}">${esc(i === pos ? act.odd : act.base)}</span>`).join('')}</div>`; };
+    if (ph === 'ready') return view('od-r' + idx, '', () => `${lab}<div class="hero-title gold" style="font-size:8vh">${esc(act.title)}</div>${act.desc ? `<div class="sec-desc">${esc(act.desc)}</div>` : ''}
+      <div class="glass panel" style="width:min(1100px,80vw);margin:0 auto"><ul class="sec-rules">
+        <li>📱 시작하면 휴대폰에 글자판이 나타나요 (사람마다 배치가 달라요)</li>
+        <li>🔍 똑같은 글자들 사이에 숨은 <b>다른 글자 하나</b>를 가장 빨리 찾아 터치!</li>
+        <li>⛔ 틀리면 1.5초 동안 멈춰요 · 제한시간 ${act.duration}초</li></ul></div>`);
+    if (ph === 'open' || ph === 'closed') {
+      return view('od-o' + idx + st.openedAt + running, JSON.stringify([rk.length, rk.slice(0, 6).map(r => r.pid)]), () => `${lab}<div class="headline">${running ? '휴대폰에서 다른 글자 하나를 찾아 터치!' : '⏰ 시간 종료!'}</div>
+        <div class="quiz-wrap"><div><div class="odd-feed" id="odF"></div></div><div>${running ? `<div class="ring" data-deadline="${deadline}" data-total="${act.duration * 1000}"><svg viewBox="0 0 200 200"><circle class="bg" cx="100" cy="100" r="90" fill="none" stroke-width="14"/><circle class="fg" cx="100" cy="100" r="90" fill="none" stroke-width="14" stroke-linecap="round" stroke-dasharray="565.5" stroke-dashoffset="0"/></svg><div class="num"></div></div>` : ''}
+        <div class="answered">찾은 사람 <b id="odN" style="color:#fff;font-size:5vh">0</b> / ${Math.max(onlineN(), rk.length)}</div></div></div>`,
+        first => {
+          if (running) { cue('odgo' + st.openedAt, 'ding'); duckNow = true; }
+          document.getElementById('odN').textContent = rk.length;
+          document.getElementById('odF').innerHTML = rk.length ? rk.slice(0, 6).map(r => `<div><b>${r.rank}</b><span>${esc(r.name)}</span><em>${r.sec.toFixed(2)}초</em></div>`).join('') : '<div class="sub" style="animation:blink 1.4s infinite">누가 제일 먼저 찾을까요?</div>';
+          if (!first && rk.length) pop();
+        });
+    }
+    if (ph === 'answer') return view('od-a' + idx, '', () => `${lab}<div class="headline">정답은 '${esc(act.base)}' 사이에 숨은 <b class="gold">'${esc(act.odd)}'</b>!</div>${grid(true)}<div class="sub" style="margin-top:2vh">찾은 사람 <b style="color:#fff">${rk.length}명</b></div>`, () => cue('oda' + idx, 'ding'));
+    if (ph === 'rank') {
+      const top = rk.slice(0, N);
+      return view('od-k' + idx, '', () => `${lab}<div class="headline" style="font-size:4.2vh;margin-bottom:1.6vh">🏁 가장 빨리 찾은 TOP ${N}</div>
+        <div class="odd-rank" style="grid-template-columns:repeat(${top.length > 30 ? 5 : top.length > 15 ? 3 : 2},1fr)">${top.map((r, k) => `<div style="animation-delay:${Math.min(3, k * .05)}s"><b>${r.rank}</b><span>${esc(r.name)}</span><em>${r.sec.toFixed(2)}s</em></div>`).join('')}</div>`,
+        () => once('odk' + idx, () => sfx('fanfare')));
+    }
+    const p = Core.prizeFor(act, 1) || { name: '깜짝 선물' };
+    view('od-p' + idx, '', () => `${label('🎁 깜짝 선물!')}<div class="hero-title gold" style="font-size:9vh">TOP ${N} 전원 당첨!</div>
+      <div style="display:flex;justify-content:center;margin:2vh 0">${Prize.card(p, 'lg')}</div>
+      <div class="headline" style="font-size:4vh">${esc(p.name)} ${N}명 당첨을 축하합니다 🎉</div><div class="sub">당첨자는 휴대폰 화면을 확인하세요!</div>`,
+      () => once('odp' + idx, () => { sfx('cymbal'); sfx('fanfare'); sfx('cheer'); confetti(260); setTimeout(() => confetti(220), 1000); setTimeout(() => confetti(180), 2200); }));
+  }
+
   // ---------- 세션 소개 ----------
-  const TYPE_ICON = { poll: '🗳️', quiz: '🧠', wordcloud: '☁️', bingo: '🎱', lottery: '🎰', rank: '🏆', race: '⚡', teamquiz: '🧠', mind: '💞', chosung: '🔤', timing: '⏱️', reaction: '⚡' };
+  const TYPE_ICON = { game: '🎮', oddone: '🧩', agenda: '📋', thanks: '💌', poll: '🗳️', quiz: '🧠', wordcloud: '☁️', bingo: '🎱', lottery: '🎰', rank: '🏆', race: '⚡', teamquiz: '🧠', mind: '💞', chosung: '🔤', timing: '⏱️', reaction: '⚡' };
   function vSection(idx, act, st, ans, content) {
     const info = Core.sectionInfo(content, idx);
-    const counts = {}; info.list.forEach(({ a }) => { const n = Core.typeName(a); counts[n] = (counts[n] || 0) + 1; });
+
     const firstIcon = {}; info.list.forEach(({ a }) => { const n = Core.typeName(a); if (!firstIcon[n]) firstIcon[n] = TYPE_ICON[a.type] || '•'; });
     const prizes = info.prizes.slice(0, 8);
     view('sec' + idx, JSON.stringify([act, prizes.length]), () => `<div class="label">SESSION ${info.no}${info.total ? ' / ' + info.total : ''}</div>
@@ -148,7 +342,7 @@
       ${act.sub ? `<div class="sec-sub">${esc(act.sub)}</div>` : ''}
       ${vals(act.desc).length ? `<div class="sec-desc">${vals(act.desc).map(d => `<div>${esc(d)}</div>`).join('')}</div>` : ''}
       <div class="sec-grid ${prizes.length ? '' : 'one'}"><div class="glass panel"><h3>📋 이번 세션에서 할 것</h3>
-        <div class="sec-chips">${Object.entries(counts).map(([n, c]) => `<span>${firstIcon[n]} ${esc(n)}${c > 1 ? ` ×${c}` : ''}</span>`).join('')}</div>
+        <div class="sec-chips">${info.chips.map(c => `<span>${/^[\p{L}\p{N}]/u.test(c.label) ? (TYPE_ICON[c.type] || '•') + ' ' : ''}${esc(c.label)}</span>`).join('')}</div>
         ${info.rules.length ? `<ul class="sec-rules">${info.rules.map(r => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}</div>
         ${prizes.length ? `<div class="glass panel"><h3>🎁 이번 세션 상품</h3><div class="sec-prizes">${prizes.map(p => `<div><div class="sec-pl">${esc(p.label)}</div>${Prize.card(p.prize, 'sm')}</div>`).join('')}</div></div>` : ''}</div>`,
       () => cue('sec' + idx, 'sparkle'));
@@ -166,22 +360,29 @@
   }
 
   // ---------- 퀴즈 ----------
-  function quizNo(idx) { const qs = vals(D.content.activities).map((a, i) => a.type === 'quiz' ? i : -1).filter(i => i >= 0); return `${qs.indexOf(idx) + 1} / ${qs.length}`; }
+  function quizNo(idx) {
+    const acts = vals(D.content.activities); const b = Core.blockRange(acts, idx);
+    const qs = acts.map((a, i) => a.type === 'quiz' && (!b || (i >= b.start && i < b.end)) ? i : -1).filter(i => i >= 0);
+    return `${qs.indexOf(idx) + 1} / ${qs.length}`;
+  }
   function vQuiz(idx, act, st, ans) {
     const opts = vals(act.options); const ph = st.phase || 'ready';
-    const tag = `${act.ox ? '⭕❌ OX 퀴즈' : '🧠 QUIZ'} ${quizNo(idx)}`;
+    const acts = vals(D.content.activities); const blk = Core.blockRange(acts, idx); const gname = blk ? acts[blk.start].title : '';
+    const tag = `${gname ? esc(gname) + ' · ' : ''}${act.ox ? '⭕❌ OX' : 'Q'} ${quizNo(idx)}`;
     if (ph === 'ready') return view('q-r' + idx, '', () => `${label(tag)}<div class="hero-title" style="font-size:22vh;animation:pop 1.2s infinite">❓</div><div class="headline">문제가 곧 나옵니다!</div>`);
     if (ph === 'reveal') {
-      const c = countVotes(opts.length, ans); const top = Core.quizRanking(D, idx).slice(0, 5);
-      const teams = teamsOf(); const tAcc = teams.map(t => { let a = 0, ok = 0; Object.entries(ans).forEach(([pid, x]) => { if ((players()[pid] || {}).team === t) { a++; if (x.v === act.answer) ok++; } }); return a ? Math.round(100 * ok / a) : 0; });
+      const c = countVotes(opts.length, ans); const last = Core.isLastQuizInBlock(acts, idx);
+      const top = blk ? Core.quizRanking(D, idx, 'block').filter(r => r.score > 0).slice(0, 10) : Core.quizRanking(D, idx).slice(0, 5);
+      const teams = blk ? [] : teamsOf(); const tAcc = teams.map(t => { let a = 0, ok = 0; Object.entries(ans).forEach(([pid, x]) => { if ((players()[pid] || {}).team === t) { a++; if (x.v === act.answer) ok++; } }); return a ? Math.round(100 * ok / a) : 0; });
       view('q-v' + idx, JSON.stringify([c, top, tAcc]), () => `${label(tag + ' · 정답 공개')}<div class="headline" style="font-size:4vh;margin-bottom:2vh">${esc(act.title)}</div>
-        <div class="reveal-grid"><div>${barsHTML(opts.map((o, i) => ({ label: o, k: act.ox ? '' : OPT_KEYS[i], color: COLORS[i % COLORS.length] })))}
+        <div class="reveal-grid ${last ? 'solo' : ''}"><div>${barsHTML(opts.map((o, i) => ({ label: o, k: act.ox ? '' : OPT_KEYS[i], color: COLORS[i % COLORS.length] })))}
           ${teams.length ? `<div class="glass panel tbars" style="margin-top:2.6vh"><h3>🎯 팀별 정답률</h3>${barsHTML(teams.map(t => ({ label: `${Core.teamEmoji(teams, t)} ${t}`, color: tc(t) })))}</div>` : ''}</div>
-          <div class="glass panel"><h3>🏆 누적 TOP 5</h3><ol class="lb" id="qTop"></ol></div></div>`,
+          ${last ? '' : `<div class="glass panel"><h3>🏆 ${blk ? '중간 순위 TOP 10' : '누적 TOP 5'}</h3><ol class="lb ${blk ? 'lb10' : ''}" id="qTop"></ol></div>`}</div>
+          ${last ? '<div class="sub" style="margin-top:3vh;font-size:3vh">🏁 마지막 문제였어요! 순위는 결과 발표에서 공개됩니다</div>' : ''}`,
         () => {
           updateBars(main.querySelector('.reveal-grid > div'), c, { correct: act.answer });
           const tb = main.querySelector('.tbars'); if (tb) updateBars(tb, tAcc, { fmt: v => v + '%' });
-          document.getElementById('qTop').innerHTML = lbRows(top);
+          const qt = document.getElementById('qTop'); if (qt) qt.innerHTML = lbRows(top);
           once('q' + idx + ':' + st.openedAt, () => { sfx('fanfare'); setTimeout(() => { confetti(160); sfx('cheer'); }, 400); });
         });
       return;
@@ -202,13 +403,13 @@
   const seenWords = {};
   function vCloud(idx, act, st, ans) {
     const ph = st.phase || 'ready';
-    if (ph === 'ready') return view('wc-r' + idx, '', () => `${label('☁️ 워드클라우드')}<div class="headline">${esc(act.title)}</div><div class="sub" style="animation:blink 1.4s infinite">곧 입력이 열립니다</div>`);
+    if (ph === 'ready') return view('wc-r' + idx, '', () => `${label('☁️ 워드클라우드')}<div class="headline">${esc(act.title)}</div>${act.desc ? `<div class="sec-desc">${esc(act.desc)}</div>` : ''}<div class="sub" style="animation:blink 1.4s infinite">곧 입력이 열립니다</div>`);
     const freq = {}; vals(ans).forEach(a => vals(a.w).forEach(w => { const k = String(w).trim(); if (k) freq[k] = (freq[k] || 0) + 1; }));
     const items = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 60);
     const max = items.length ? items[0][1] : 1;
     const shown = items.slice().sort((a, b) => Core.hash(a[0]) - Core.hash(b[0]));
     const seen = seenWords[idx] = seenWords[idx] || new Set();
-    view('wc' + idx, JSON.stringify([items, ph]), () => `${label('☁️ 워드클라우드')}<div class="headline" style="margin-bottom:2.4vh">${esc(act.title)}</div><div class="cloud" id="cl"></div><div class="sub" id="clS" style="margin-top:2.4vh"></div>`,
+    view('wc' + idx, JSON.stringify([items, ph]), () => `${label('☁️ 워드클라우드')}<div class="headline" style="margin-bottom:${act.desc ? '.6vh' : '2.4vh'}">${esc(act.title)}</div>${act.desc ? `<div class="sub" style="margin-bottom:2vh;font-size:2.2vh">${esc(act.desc)}</div>` : ''}<div class="cloud" id="cl"></div><div class="sub" id="clS" style="margin-top:2.4vh"></div>`,
       () => {
         document.getElementById('cl').innerHTML = shown.map(([w, c]) => `<span class="${seen.has(w) ? '' : 'new'}" style="font-size:${(2.6 + 9.5 * Math.sqrt(c / max)).toFixed(1)}vh;color:${COLORS[Core.hash(w) % COLORS.length]}">${esc(w)}</span>`).join('') || '<span class="sub" style="animation:blink 1.4s infinite">첫 단어를 기다리는 중...</span>';
         if (shown.some(([w]) => !seen.has(w)) && seen.size) pop();
@@ -252,7 +453,10 @@
     const ph = st.phase || 'ready';
     const revealAt = (st.at || 0) + 4500; const revealed = ph === 'spin' && B.now() > revealAt;
     const w = vals(st.winners);
-    if (ph !== 'spin') return view('l-r' + idx, String(Object.keys(players()).length), () => `${label('🎁 경품 추첨')}<div class="gift">🎁</div><div class="headline">${esc(act.title)}</div><div class="sub">행운의 주인공 <b style="color:var(--gold)">${act.count}명</b>은 누구일까요?</div>`);
+    if (ph !== 'spin') return view('l-r' + idx, String(Object.keys(players()).length), () => `${label('🎁 깜짝 추첨')}<div class="headline" style="margin-bottom:2vh">${esc(act.title)}</div>
+      ${act.desc ? `<div class="sub" style="margin-bottom:2.4vh">${esc(act.desc)}</div>` : ''}
+      <div style="display:flex;justify-content:center;align-items:center;gap:4vw"><div class="gift" style="font-size:18vh">🎁</div>${Prize.card(Core.prizeFor(act, 1) || { name: act.title }, 'lg')}</div>
+      <div class="sub" style="margin-top:2.4vh">행운의 주인공 <b style="color:var(--gold)">${act.count}명</b>은 누구일까요?</div>`);
     if (ph === 'spin' && !revealed) duckNow = true;
     if (!revealed) return view('l-s' + idx + st.at, '', () => `${label('🎰 추첨 중')}<div class="headline">${esc(act.title)}</div><div class="reel glass"><div class="nm" id="reel">...</div></div><div class="sub" style="margin-top:3vh;animation:blink .8s infinite">두근두근...</div>`,
       () => { startReel(st.at, revealAt); cue('dr' + st.at, 'drumroll', Math.max(.5, (revealAt - B.now()) / 1000)); });
@@ -288,7 +492,10 @@
   }
   function podiumHTML(top) { return podium(top.map(r => ({ title: r.name, sub: `${r.score.toLocaleString()}점${r.team ? ` · <span style="color:${tc(r.team)}">${esc(r.team)}</span>` : ''}` }))); }
   function vRank(idx, act, st) {
-    const snap = st.snap;
+    const snap = st.shown ? st.snap : null;
+    if (!snap) return view('r-w' + idx, '', () => `${label('🏆 ' + esc(act.title))}<div class="hero-title gold" style="font-size:16vh;margin-bottom:2vh">${esc(act.desc || '여기까지!')}</div>
+      <div class="headline" style="font-size:4.4vh">${act.scope === 'block' ? '이 게임이 모두 끝났어요 🎉' : act.scope === 'team' ? '모든 팀 게임이 끝났어요 🎉' : '모든 게임이 끝났어요 🎉'}</div><div class="sub" style="animation:blink 1.6s infinite">잠시 후 결과를 발표합니다</div>`,
+      () => cue('rw' + idx, 'sparkle'));
     if (!snap) return view('r-w' + idx, '', () => `${label('🏆 ' + esc(act.title))}<div class="hero-title" style="font-size:20vh;animation:pop 1.2s infinite">🏆</div><div class="headline">결과 집계 중...</div>`);
     if (act.scope === 'team') {
       const teams = teamsOf(); const rows = vals(snap.team);
@@ -322,7 +529,7 @@
     const g = Core.teamGame(D, idx, act); const opts = vals(act.options);
     const lab = label(`👥 팀 게임 · ${esc(name)}`);
     const rules = { teamquiz: '시작 때 접속한 팀원 중 정답을 맞힌 비율로 승부! 모두 답해야 유리합니다', mind: '정답은 없어요! 팀원끼리 같은 답을 고를수록 이깁니다', reaction: `빨간 화면에서 기다리다 초록색이 되는 순간 터치! ${act.rounds || 3}번 평균 반응속도가 빠른 팀이 승리`, chosung: '초성을 보고 단어를 입력! 팀원 1인당 평균 정답 수로 승부', timing: `시작을 누르고 정확히 ${act.target}.00초에 멈추기! 팀원 평균 오차가 작은 팀이 승리` }[act.type];
-    if (ph === 'ready') return view('tg-r' + idx, '', () => `${lab}<div class="headline">${esc(act.title)}</div><div class="sub" style="max-width:70vw;margin:0 auto 4vh">${rules}</div>
+    if (ph === 'ready') return view('tg-r' + idx, '', () => `${lab}<div class="headline">${esc(act.title)}</div>${act.desc ? `<div class="sec-desc" style="max-width:80vw">${esc(act.desc)}</div>` : ''}<div class="sub" style="max-width:70vw;margin:0 auto 4vh">📏 ${rules}</div>
       <div style="display:flex;justify-content:center;gap:2vw">${teams.map(t => `<div class="tchip" style="--c:${tc(t)};font-size:3vh;padding:1.6vh 2vw"><span class="em" style="font-size:5vh">${Core.teamEmoji(teams, t)}</span>${esc(t)}</div>`).join('')}</div>`);
     if (ph === 'reveal' && st.result) {
       const res = vals(st.result);

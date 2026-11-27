@@ -51,7 +51,7 @@
     const i = curIdx(); const a = acts()[i]; const st = stOf(i);
     if (a && a.type === 'quiz' && st.phase === 'open' && st.openedAt && B.now() > st.openedAt + a.duration * 1000 + 1500) B.set(`state/${i}/phase`, 'closed');
     if (Core.isTeamGame(a) && st.phase === 'open' && st.openedAt && B.now() > Core.gameWindow(a, st).end + 2000) B.set(`state/${i}/phase`, 'closed');
-    if (a && a.type === 'rank' && !st.snap && !snapBusy[i]) { snapBusy[i] = 1; B.set(`state/${i}/snap`, Core.rankSnapshot(D, a, i)).then(() => { snapBusy[i] = 0; }); }
+    if (a && a.type === 'oddone' && st.phase === 'open' && st.openedAt && B.now() > st.openedAt + a.duration * 1000 + 1000) B.set(`state/${i}/phase`, 'closed');
     if (a && a.type === 'bingo') { const wv = Core.bingoWinners(D, i, a).map(w => w.pid); if (JSON.stringify(wv) !== JSON.stringify(vals(st.bwin))) B.set(`state/${i}/bwin`, wv.length ? wv : null); }
     const cd = document.getElementById('cd');
     if (cd) cd.textContent = Math.max(0, Math.ceil((+cd.dataset.deadline - B.now()) / 1000)) + '초';
@@ -104,7 +104,8 @@
     el.innerHTML = `<div class="h-grid"><div class="card" style="padding:10px"><div class="row" style="margin-bottom:8px">
         <button id="prev">◀ 이전</button><button id="next" class="primary">다음 ▶</button></div>
       <ul class="alist">${list.map((a, i) => a.type === 'section' ? `<li data-i="${i}" class="sec ${i === ci ? 'cur' : ''}"><span class="no">📌</span><span class="ti"><b>${esc(a.title)}</b>${a.sub ? ` <span class="muted small">${esc(a.sub)}</span>` : ''}</span></li>`
-        : `<li data-i="${i}" class="${i === ci ? 'cur' : ''}"><span class="no">${i + 1}</span><span class="ty">${Core.typeName(a)}</span><span class="ti">${esc(a.title)}</span><span class="ph">${PH[stOf(i).phase] || ''}</span></li>`).join('')}</ul>
+        : a.type === 'game' ? `<li data-i="${i}" class="gm ${i === ci ? 'cur' : ''}"><span class="no">🎮</span><span class="ti"><b>${esc(a.title)}</b></span><span class="ph">${stOf(i).prize ? '상품 공개됨' : ''}</span></li>`
+        : `<li data-i="${i}" class="${i === ci ? 'cur' : ''} ${Core.blockRange(list, i) && a.type !== 'game' ? 'inblk' : ''}"><span class="no">${i + 1}</span><span class="ty">${Core.typeName(a)}</span><span class="ti">${a.hidden ? '🙈 ' : ''}${esc(a.title)}</span><span class="ph">${a.type === 'rank' ? (stOf(i).shown ? '발표됨' : '') : PH[stOf(i).phase] || ''}</span></li>`).join('')}</ul>
       <button class="ghost small" id="toIdle" style="width:100%;margin-top:8px">☕ 화면 비우기 (안내 화면)</button></div>
       <div class="card" id="panel">${list[ci] ? '' : '<p class="muted">왼쪽에서 진행할 순서를 클릭하세요. 클릭하면 참가자·대형 화면이 그 순서로 바뀝니다.</p>'}</div></div>`;
     el.querySelectorAll('.alist li').forEach(li => li.onclick = () => B.set('meta/current', +li.dataset.i));
@@ -130,7 +131,7 @@
       if (a.type === 'poll') btns = btn('open', '🗳️ 투표 열기', 'primary', ph === 'open') + btn('close', '⏹ 투표 마감', '', ph !== 'open');
       else btns = btn('start', `▶ 문제 시작 (${a.duration}초)`, 'primary', ph !== 'ready') + btn('close', '⏹ 즉시 마감', '', ph !== 'open') + btn('reveal', '✅ 정답 공개 · 채점', 'primary', ph === 'ready' || ph === 'reveal');
       if (a.type === 'quiz' && ph === 'reveal') {
-        const top = Core.quizRanking(D, i).slice(0, 5);
+        const top = Core.quizRanking(D, i, 'block').slice(0, 10);
         body += `<p class="muted small">누적 TOP 5: ${top.map((r, k) => `${k + 1}. ${esc(r.name)}(${r.score})`).join(' · ')}</p>`;
       }
     }
@@ -172,19 +173,49 @@
       btns = btn('start', `▶ 시작 (${a.window ? a.window + '초 동안 도전' : a.duration + '초'})`, 'primary', ph !== 'ready') + btn('close', '⏹ 즉시 마감', '', ph !== 'open') + btn('reveal', '🏆 결과 발표 · 팀전 점수 지급', 'primary', ph === 'ready' || ph === 'reveal');
     }
     if (a.type === 'rank') {
-      const snap = st.snap;
+      const snap = st.shown && st.snap ? st.snap : Core.rankSnapshot(D, a, i);
+      const pre = st.shown ? '<p class="ok">✅ 발표됨 — 대형 화면과 폰에 결과가 표시 중입니다. (발표 순간의 점수로 고정)</p>' : `<p class="muted">지금은 대형 화면에 <b>"${esc(a.desc || '여기까지!')}"</b> 화면이 나옵니다. 아래는 실시간 미리보기이고, <b>🏆 결과 발표</b>를 누르는 순간의 점수로 고정되어 공개됩니다.</p>`;
       if (a.scope === 'team') {
         const rows = vals(snap && snap.team);
-        body = `<p class="muted">이 순서를 열 때의 팀전 점수로 순위가 고정됩니다. 팀 게임을 더 했다면 <b>다시 집계</b>를 누르세요.</p>
+        body = `${pre}
           <table><tr><th>순위</th><th>팀</th><th>팀전 점수</th><th>1등/2등 횟수</th><th>포상</th></tr>${rows.map(r => { const pz = Core.prizeFor(a, r.rank); return `<tr><td>${r.rank}</td><td>${esc(r.team)}</td><td>${r.pts}</td><td>${vals(r.medals)[0] || 0} / ${vals(r.medals)[1] || 0}${r.tieBroken ? ' <span class="muted small">(동점 규칙)</span>' : ''}</td><td>${pz ? esc(pz.name) : '-'}</td></tr>`; }).join('')}</table>
           <p class="muted small">⚖️ 동점이면 팀 게임 1등 횟수 → 2등 횟수 → … → 마지막 팀 게임 순위로 정합니다.</p>`;
       } else {
         const rows = vals(snap && snap.indiv);
-        body = `<p class="muted">이 순서를 열 때의 점수로 순위가 고정됩니다. 퀴즈를 더 했다면 <b>다시 집계</b>를 누르세요.</p>
+        body = `${pre}
           <table><tr><th>순위</th><th>이름</th><th>팀</th><th>점수</th><th>정답</th><th>정답 시간 합</th><th>포상</th></tr>${rows.map(r => { const pz = Core.prizeFor(a, r.rank); return `<tr><td>${r.rank}</td><td>${esc(r.name)}</td><td>${esc(r.team)}</td><td>${r.score}</td><td>${r.correct ?? '-'}</td><td>${r.time != null ? (r.time / 1000).toFixed(2) + '초' : '-'}${r.tieBroken ? ' <span class="muted small">(동점 규칙)</span>' : ''}</td><td>${pz ? esc(pz.name) : '-'}</td></tr>`; }).join('')}</table>
-          <p class="muted small">⚖️ 이 세션의 퀴즈 점수만 집계합니다. 동점이면 맞힌 문제 수 → 정답까지 걸린 시간 합이 짧은 사람이 위.</p>`;
+          <p class="muted small">⚖️ ${a.scope === 'block' ? '이 게임의 문제 점수만' : '이 세션의 모든 퀴즈 점수를 합산해'} 집계합니다. 동점이면 맞힌 문제 수 → 정답까지 걸린 시간 합이 짧은 사람이 위.</p>`;
       }
-      btns = btn('resnap', '🔄 다시 집계', 'ghost');
+      btns = btn('show', st.shown ? '🔄 다시 집계해서 발표' : '🏆 결과 발표', 'primary') + (st.shown ? btn('unshow', '🙈 다시 "여기까지!"로', 'ghost') : '');
+    }
+    if (a.type === 'agenda') body = '<p class="muted">대형 화면과 폰에 오늘의 세션 순서가 표시됩니다.</p>';
+    if (a.type === 'game') {
+      const L = acts(); const b = Core.blockRange(L, i); const qn = b ? L.slice(b.start, b.end).filter(x => x.type === 'quiz').length : 0;
+      body = `<p class="muted">게임 소개 화면입니다. 이 게임은 문제 <b>${qn}개</b>이고, 문제마다 정답 공개 때 대형 화면 오른쪽에 이 게임 TOP 10이 나옵니다. (마지막 문제는 순위 없이 정답만)</p>
+        <p>${vals(a.prizes).map(p => `${p.from}${p.to !== p.from ? '~' + p.to : ''}등 <b>${esc(p.name)}</b>`).join(' · ') || '<span class="muted">상품 없음</span>'}</p>
+        <p class="muted small">${st.prize ? '✅ 상품이 공개된 상태입니다.' : '🎁 상품은 아직 숨겨져 있어요. 버튼을 누르면 대형 화면과 폰에 공개됩니다.'}</p>`;
+      btns = btn('gprize', st.prize ? '🙈 상품 다시 숨기기' : '🎁 상품 공개', st.prize ? 'ghost' : 'primary');
+    }
+    if (a.type === 'oddone') {
+      const rk = Core.oddRanking(D, i); const N = Core.maxPrizeRank(a) || 50; const w = (st.openedAt || 0) + a.duration * 1000;
+      const st2 = { ready: '대기', open: '진행 중', closed: '마감', answer: '정답 공개', rank: '순위 공개', prize: '깜짝 선물 공개' }[ph];
+      body = `<p class="muted">현재: <b>${st2}</b>${ph === 'open' ? ` · 남은 시간 <b id="cd" data-deadline="${w}"></b>` : ''} · 찾은 사람 <b>${rk.length}</b> / 접속 ${nOn}명 · '${esc(a.base)}' 사이에서 '${esc(a.odd)}' 찾기 (${a.cols}×${a.rows})</p>
+        <p class="muted small">상품은 숨겨져 있어요: ${vals(a.prizes).map(p => `${p.from}~${p.to}등 ${esc(p.name)}`).join(' · ') || '없음'}</p>
+        <table><tr><th>순위</th><th>이름</th><th>팀</th><th>기록</th><th>오답</th></tr>${rk.slice(0, 12).map(r => `<tr><td>${r.rank}</td><td>${esc(r.name)}</td><td>${esc(r.team)}</td><td>${r.sec.toFixed(2)}초</td><td>${r.miss}</td></tr>`).join('')}</table>`;
+      btns = btn('start', `▶ 시작 (${a.duration}초)`, 'primary', ph !== 'ready') + btn('close', '⏹ 즉시 마감', '', ph !== 'open')
+        + btn('oanswer', '👀 정답 공개', 'primary', ph === 'ready' || ph === 'open') + btn('orank', `🏁 순위 공개 (TOP ${N})`, 'primary', ph === 'ready' || ph === 'open')
+        + btn('oprize', '🎁 깜짝 선물 공개', 'primary', ph !== 'rank' && ph !== 'prize');
+    }
+    if (a.type === 'thanks') {
+      const rows = Core.thanksAgg(D, i); const total = rows.reduce((t, r) => t + r.msgs.length, 0); const senders = Object.keys(ansOf(i)).length;
+      const res = vals(st.res);
+      body = `<p class="muted">보낸 사람 ${senders}명 · 감사 ${total}개 · 받은 사람 ${rows.length}명 (한 사람이 같은 동료에게 여러 번 보내도 1표)</p>
+        <table><tr><th>순위</th><th>이름</th><th>팀</th><th>받은 표</th><th>포상</th></tr>${rows.slice(0, 10).map(r => { const pz = Core.prizeFor(a, r.rank); return `<tr><td>${r.rank}</td><td>${esc(r.name)}</td><td>${esc(r.team) || '<span class="muted small">명단 외</span>'}</td><td>${r.count}</td><td>${pz ? esc(pz.name) : '-'}</td></tr>`; }).join('')}</table>
+        <p class="muted small">동점이면 그 득표에 먼저 도달한 사람이 위. 결과 발표를 누르는 순간의 집계로 고정되고, 멘트는 사람마다 최대 4개를 무작위로 뽑아 보여 줍니다.</p>
+        ${res.length ? `<p class="ok">발표된 결과: ${res.map(r => `${r.rank}등 ${esc(r.name)}(${r.count})`).join(' · ')}</p>` : ''}`;
+      btns = btn('open', '✍️ 입력 열기', 'primary', ph === 'open') + btn('close', '⏹ 입력 마감', '', ph !== 'open')
+        + btn('thres', res.length ? '🔄 결과 다시 집계·발표' : '🏆 결과 발표 (1·2·3등)', 'primary', ph === 'ready' || ph === 'open')
+        + btn('thfin', ph === 'finale' ? '🔁 One Team 다시 재생' : '🤝 One Team 피날레', 'primary', !res.length);
     }
     if (a.type === 'section') {
       const info = Core.sectionInfo(D.content, i);
@@ -205,7 +236,14 @@
       B.set(`state/${i}`, o);
     });
     on('reveal', () => Core.isTeamGame(a) ? revealTeam(i, a) : reveal(i, a));
-    on('resnap', () => B.set(`state/${i}/snap`, Core.rankSnapshot(D, a, i)));
+    on('thres', () => B.update('', { [`state/${i}/res`]: Core.thanksResult(D, i, a), [`state/${i}/phase`]: 'result' }));
+    on('thfin', () => B.update('', { [`state/${i}/phase`]: 'finale', [`state/${i}/finaleAt`]: TS }));
+    on('show', () => B.update('', { [`state/${i}/snap`]: Core.rankSnapshot(D, a, i), [`state/${i}/shown`]: TS }));
+    on('unshow', () => B.set(`state/${i}/shown`, null));
+    on('gprize', () => B.set(`state/${i}/prize`, st.prize ? null : TS));
+    on('oanswer', () => B.set(`state/${i}/phase`, 'answer'));
+    on('orank', () => B.set(`state/${i}/phase`, 'rank'));
+    on('oprize', () => B.set(`state/${i}/phase`, 'prize'));
     on('draw', () => a.type === 'bingo' ? drawWord(i, a) : drawLottery(i));
     on('undo', () => { const c = vals(st.called); if (confirm(`"${c[c.length - 1]}" 뽑기를 취소할까요?`)) B.remove(`state/${i}/called/${c.length - 1}`); });
     on('reset', () => { if (confirm('이 순서의 응답·점수·결과를 모두 지울까요?')) B.update('', { [`state/${i}`]: null, [`answers/${i}`]: null, [`points/${i}`]: null, [`bingo/${i}`]: null, [`taps/${i}`]: null, [`tpoints/${i}`]: null }); });
@@ -258,7 +296,13 @@
       <code>[OX 10초] 문장 / O</code><br>
       <code>[빙고 5x5 3줄] 제목</code> + 단어들을 쉼표로 (25개 이상)<br>
       <code>[추첨 3명] 제목</code> + <code>경품: 스타벅스 3만원</code><br>
-      <code>[순위 퀴즈] 제목</code> — 퀴즈 점수 개인 순위 + 포상<br><br>
+      <code>[순위 퀴즈] 제목</code> — 세션 전체 퀴즈 점수 개인 순위 (+포상)<br>
+      <code>[목차] 오늘의 순서</code> — 모든 세션 한눈에 보기<br>
+      <code>[게임] 제목</code> + 포상 — 게임 묶음 시작 (🎁 상품 공개 버튼). 아래 퀴즈들이 이 게임 점수<br>
+      <code>[게임결과] 제목</code> + 다음 줄 "여기까지!" — 이 게임 1~10등 발표 (상품은 [게임]에서 자동)<br>
+      <code>[다른글자찾기 30초] 제목</code> + <code>곰 = 공</code> + <code>1~50등: 상품</code> — 몸풀기 (상품 숨김)<br>
+      <code>[추첨 3명 비공개]</code> — "비공개"를 붙이면 세션 소개에 안 나와요<br>
+      <code>[감사 3명] 제목</code> + 포상 — 고마운 동료 이름·멘트 → 이름 워드클라우드 → 1·2·3등 발표 → One Team 피날레<br><br>
       <b>팀 게임</b> (결과 발표 시 1등 100 · 2등 70 · 3등 50 · 4등 30점)<br>
       모든 팀 게임은 <b>1인당 평균·비율</b>로 승부해 팀 인원 차이와 무관합니다.<br>
       <code>[탭레이스 10초] 제목</code> — 연타 경주 (1인당 평균)<br>

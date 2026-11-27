@@ -156,3 +156,13 @@ textarea.editor{min-height:60vh;font-family:ui-monospace,Menlo,Consolas,monospac
 .rx-pad.done{background:#2b2a55}
 
 .alist li.sec{background:#ffcc4d14;border-color:#ffcc4d33;margin-top:8px}.alist li.sec.cur{border-color:var(--gold)}
+.th-sent{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border-radius:12px;background:var(--bg2);margin-top:8px;font-size:14px}
+.th-sent b{color:var(--gold)}
+.th-in{padding:10px 12px;border-radius:12px;background:#2b2a55;margin-top:8px;font-size:15px;line-height:1.5}
+.alist li.gm{background:#4da3ff14;border-color:#4da3ff33;margin-top:6px}.alist li.gm.cur{border-color:var(--gold)}
+.alist li.inblk{padding-left:22px}
+.odd-board{display:grid;gap:5px;margin:8px 0}
+.odd-board button{aspect-ratio:1;padding:0;font-size:22px;font-weight:800;border-radius:9px;background:var(--bg2);touch-action:manipulation}
+.odd-board button.no{background:var(--red);color:#fff}
+.odd-board button.ok{background:var(--green);color:#08231a}
+.odd-board.frozen{opacity:.45;filter:grayscale(.6)}
